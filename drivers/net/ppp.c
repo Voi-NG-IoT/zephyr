@@ -35,6 +35,8 @@ LOG_MODULE_REGISTER(net_ppp, LOG_LEVEL);
 #include "../../subsys/net/ip/net_stats.h"
 #include "../../subsys/net/ip/net_private.h"
 
+#include "../console/gsm_mux.h"
+
 #define UART_BUF_LEN CONFIG_NET_PPP_UART_BUF_LEN
 
 enum ppp_driver_state {
@@ -196,8 +198,16 @@ static int ppp_send_flush(struct ppp_driver_context *ppp, int off)
 	if (!IS_ENABLED(CONFIG_NET_TEST)) {
 		uint8_t *buf = ppp->send_buf;
 
-		while (off--) {
-			uart_poll_out(ppp->dev, *buf++);
+		if (strncmp(ppp->dev->name, CONFIG_UART_MUX_DEVICE_NAME, sizeof
+CONFIG_UART_MUX_DEVICE_NAME - 1) == 0) {
+
+			uint8_t dlci_address = ppp->dev->name[4] - '0';
+			gsm_dlci_send(gsm_dlci_get(NULL, dlci_address), buf, off);
+
+		} else {
+			while (off--) {
+				uart_poll_out(ppp->dev, *buf++);
+			}
 		}
 	}
 

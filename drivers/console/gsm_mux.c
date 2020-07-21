@@ -343,13 +343,12 @@ static int gsm_dlci_process_data(struct gsm_dlci *dlci, bool cmd,
 	return len;
 }
 
-static struct gsm_dlci *gsm_dlci_get(struct gsm_mux *mux, uint8_t dlci_address)
+struct gsm_dlci *gsm_dlci_get(struct gsm_mux *mux, uint8_t dlci_address)
 {
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(dlcis); i++) {
 		if (dlcis[i].in_use &&
-		    dlcis[i].mux == mux &&
 		    dlcis[i].num == dlci_address) {
 			return &dlcis[i];
 		}

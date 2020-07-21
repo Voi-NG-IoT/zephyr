@@ -425,15 +425,18 @@ static int uart_mux_poll_in(struct device *dev, unsigned char *p_char)
 	return -ENOTSUP;
 }
 
+
 static void uart_mux_poll_out(struct device *dev, unsigned char out_char)
 {
 	struct uart_mux_dev_data *dev_data = DEV_DATA(dev);
+
 
 	if (dev_data->dev == NULL) {
 		return;
 	}
 
 	(void)gsm_dlci_send(dev_data->dlci, &out_char, 1);
+
 }
 
 static int uart_mux_err_check(struct device *dev)

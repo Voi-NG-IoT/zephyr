@@ -36,3 +36,5 @@ int gsm_dlci_create(struct gsm_mux *mux,
 		    struct gsm_dlci **dlci);
 int gsm_dlci_send(struct gsm_dlci *dlci, const uint8_t *buf, size_t size);
 int gsm_dlci_id(struct gsm_dlci *dlci);
+
+struct gsm_dlci *gsm_dlci_get(struct gsm_mux *mux, uint8_t dlci_address);

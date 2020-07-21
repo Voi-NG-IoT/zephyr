@@ -19,6 +19,8 @@ LOG_MODULE_REGISTER(modem_iface_uart, CONFIG_MODEM_LOG_LEVEL);
 #include "modem_context.h"
 #include "modem_iface_uart.h"
 
+#include "../console/gsm_mux.h"
+
 /**
  * @brief  Drains UART.
  *
@@ -103,6 +105,7 @@ static int modem_iface_uart_read(struct modem_iface *iface,
 	return 0;
 }
 
+
 static int modem_iface_uart_write(struct modem_iface *iface,
 				  const uint8_t *buf, size_t size)
 {
@@ -114,9 +117,18 @@ static int modem_iface_uart_write(struct modem_iface *iface,
 		return 0;
 	}
 
-	do {
-		uart_poll_out(iface->dev, *buf++);
-	} while (--size);
+
+	if (strncmp(iface->dev->name, CONFIG_UART_MUX_DEVICE_NAME, sizeof
+CONFIG_UART_MUX_DEVICE_NAME - 1) == 0) {
+
+		uint8_t dlci_address = iface->dev->name[4] - '0';
+		(void)gsm_dlci_send(gsm_dlci_get(NULL, dlci_address), buf, size);
+
+	} else {
+		do {
+			uart_poll_out(iface->dev, *buf++);
+		} while (--size);
+	}
 
 	return 0;
 }

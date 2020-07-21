@@ -11,6 +11,7 @@
 extern "C" {
 #endif
 
+struct uart_mux_dev_data;
 /**
  * @brief Send data to real UART (the data should be muxed already)
  *
