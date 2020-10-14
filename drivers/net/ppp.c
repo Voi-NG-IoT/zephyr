@@ -212,7 +212,6 @@ static int ppp_send_flush(struct ppp_driver_context *ppp, int off)
 		}
 	}
 
-
 	return 0;
 }
 

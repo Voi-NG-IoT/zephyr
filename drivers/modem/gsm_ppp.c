@@ -60,6 +60,8 @@ static struct gsm_modem {
 	const struct device *at_dev;
 	const struct device *control_dev;
 
+	struct net_if *iface;
+
 	bool mux_enabled : 1;
 	bool mux_setup_done : 1;
 	bool setup_done : 1;
@@ -303,10 +305,10 @@ static struct net_if *ppp_net_if(void)
 
 static void set_ppp_carrier_on(struct gsm_modem *gsm)
 {
+	static const struct ppp_api *api;
 	const struct device *ppp_dev =
 		device_get_binding(CONFIG_NET_PPP_DRV_NAME);
-	static const struct ppp_api *api;
-	struct net_if *iface = ppp_net_if();
+	struct net_if *iface = gsm->iface;
 	int ret;
 
 	if (!ppp_dev) {
@@ -666,7 +668,7 @@ void gsm_ppp_start(const struct device *device)
 void gsm_ppp_stop(const struct device *device)
 {
 	struct gsm_modem *gsm = device->data;
-	struct net_if *iface = ppp_net_if();
+	struct net_if *iface = gsm->iface;
 
 	net_if_l2(iface)->enable(iface, false);
 
@@ -742,6 +744,12 @@ static int gsm_init(const struct device *device)
 			(k_thread_entry_t) gsm_rx,
 			gsm, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
 	k_thread_name_set(&gsm_rx_thread, "gsm_rx");
+
+	gsm->iface = ppp_net_if();
+	if (!gsm->iface) {
+		LOG_ERR("Couldn't find ppp net_if!");
+		return -ENODEV;
+	}
 
 	gsm_ppp_start(device);
 

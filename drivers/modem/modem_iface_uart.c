@@ -128,11 +128,12 @@ static int modem_iface_uart_read(struct modem_iface *iface,
 static bool mux_is_active(struct modem_iface *iface)
 {
 	bool active = false;
-#ifdef CONFIG_UART_MUX_DEVICE_NAME
-	const char *mux_name = CONFIG_UART_MUX_DEVICE_NAME;
 
+#if defined(CONFIG_UART_MUX_DEVICE_NAME)
+	const char *mux_name = CONFIG_UART_MUX_DEVICE_NAME;
 	active = (mux_name == iface->dev->name);
 #endif /* CONFIG_UART_MUX_DEVICE_NAME */
+
 	return active;
 }
 
