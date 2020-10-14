@@ -285,7 +285,8 @@ def main():
                 projects = [p.posixpath for p in manifest.get_projects([])
                             if manifest.is_active(p)]
             else:
-                projects = [p.posixpath for p in manifest.get_projects([])]
+                projects = [p.posixpath for p in manifest.get_projects([])
+                            if p.posixpath]
         except WestNotFound:
             # Only accept WestNotFound, meaning we are not in a west
             # workspace. Such setup is allowed, as west may be installed
