@@ -211,7 +211,7 @@ static void sm_handle_timeout_state(struct lwm2m_message *msg,
 }
 
 /* force state machine restart */
-static void socket_fault_cb(int error)
+static void socket_fault_cb(struct lwm2m_ctx *ctx, int error)
 {
 	LOG_ERR("RD Client socket error: %d", error);
 

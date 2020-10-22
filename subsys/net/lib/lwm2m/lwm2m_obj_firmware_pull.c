@@ -18,7 +18,8 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include "lwm2m_pull_context.h"
 #include "lwm2m_engine.h"
 
-static void set_update_result_from_error(int error_code)
+static void set_update_result_from_error(struct firmware_pull_context *context,
+                                         int error_code)
 {
 	if (!error_code) {
 		lwm2m_firmware_set_update_state(STATE_DOWNLOADED);
@@ -46,7 +47,8 @@ static struct firmware_pull_context fota_context = {
 	.firmware_ctx = {
 		.sock_fd = -1
 	},
-	.result_cb = set_update_result_from_error
+	.result_cb = set_update_result_from_error,
+	.obj_inst_id = 0,
 };
 
 /* TODO: */
@@ -59,7 +61,8 @@ int lwm2m_firmware_start_transfer(char *package_uri)
 {
 	fota_context.write_cb = lwm2m_firmware_get_write_cb();
 
-	strncpy(fota_context.uri, package_uri, URI_LEN - 1);
+	/* start file transfer work */
+	strncpy(fota_context.uri, package_uri, LWM2M_PACKAGE_URI_LEN - 1);
 	lwm2m_pull_context_start_transfer(&fota_context);
 	lwm2m_firmware_set_update_state(STATE_DOWNLOADING);
 
