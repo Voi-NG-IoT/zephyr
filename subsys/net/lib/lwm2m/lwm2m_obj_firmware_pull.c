@@ -16,7 +16,8 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include "lwm2m_pull_context.h"
 #include "lwm2m_engine.h"
 
-static void set_update_result_from_error(int error_code)
+static void set_update_result_from_error(struct firmware_pull_context *context,
+                                         int error_code)
 {
 	if (!error_code) {
 		lwm2m_firmware_set_update_state(STATE_DOWNLOADED);
@@ -44,7 +45,8 @@ static struct firmware_pull_context fota_context = {
 	.firmware_ctx = {
 		.sock_fd = -1
 	},
-	.result_cb = set_update_result_from_error
+	.result_cb = set_update_result_from_error,
+	.obj_inst_id = 0,
 };
 
 static void socket_fault_cb(int error)
@@ -53,17 +55,17 @@ static void socket_fault_cb(int error)
 
 	LOG_ERR("FW update socket error: %d", error);
 
-	lwm2m_engine_context_close(&firmware_ctx);
+	lwm2m_engine_context_close(&fota_context.firmware_ctx);
 
 	/* Reopen the socket and retransmit the last request. */
-	lwm2m_engine_context_init(&firmware_ctx);
-	ret = lwm2m_socket_start(&firmware_ctx);
+	lwm2m_engine_context_init(&fota_context.firmware_ctx);
+	ret = lwm2m_socket_start(&fota_context.firmware_ctx);
 	if (ret < 0) {
 		LOG_ERR("Failed to start a firmware-pull connection: %d", ret);
 		goto error;
 	}
 
-	ret = transfer_request(&firmware_block_ctx,
+	ret = transfer_request(&fota_context.block_ctx,
 			       NULL, LWM2M_MSG_TOKEN_GENERATE_NEW,
 			       do_firmware_transfer_reply_cb);
 	if (ret < 0) {
@@ -77,7 +79,7 @@ error:
 	/* Abort retries. */
 	firmware_retry = PACKET_TRANSFER_RETRY_MAX;
 	set_update_result_from_error(ret);
-	lwm2m_engine_context_close(&firmware_ctx);
+	lwm2m_engine_context_close(&fota_context.firmware_ctx);
 }
 
 /* TODO: */
@@ -104,7 +106,7 @@ int lwm2m_firmware_start_transfer(char *package_uri)
 
 	/* start file transfer work */
 	strncpy(fota_context.uri, package_uri, LWM2M_PACKAGE_URI_LEN - 1);
-	lwm2m_pull_context_start_transfer(&fota_context);
+	lwm2m_pull_context_start_transfer(&fota_context, K_NO_WAIT);
 	lwm2m_firmware_set_update_state(STATE_DOWNLOADING);
 
 	return 0;
