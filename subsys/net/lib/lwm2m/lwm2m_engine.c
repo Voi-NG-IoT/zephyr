@@ -892,8 +892,8 @@ static int coap_options_to_path(struct coap_option *opt, int options_count,
 	return options_count == path->level ? 0 : -EINVAL;
 }
 
-static struct lwm2m_message *find_msg(struct coap_pending *pending,
-				      struct coap_reply *reply)
+struct lwm2m_message *lwm2m_find_msg(struct coap_pending *pending,
+				            struct coap_reply *reply)
 {
 	size_t i;
 
@@ -4092,7 +4092,7 @@ static void lwm2m_udp_receive(struct lwm2m_ctx *client_ctx,
 	pending = coap_pending_received(&response, client_ctx->pendings,
 					CONFIG_LWM2M_ENGINE_MAX_PENDING);
 	if (pending && coap_header_get_type(&response) == COAP_TYPE_ACK) {
-		msg = find_msg(pending, NULL);
+		msg = lwm2m_find_msg(pending, NULL);
 		if (msg == NULL) {
 			LOG_DBG("Orphaned pending %p.", pending);
 			return;
@@ -4123,7 +4123,7 @@ static void lwm2m_udp_receive(struct lwm2m_ctx *client_ctx,
 				       client_ctx->replies,
 				       CONFIG_LWM2M_ENGINE_MAX_REPLIES);
 	if (reply) {
-		msg = find_msg(NULL, reply);
+		msg = lwm2m_find_msg(NULL, reply);
 
 		if (coap_header_get_type(&response) == COAP_TYPE_CON) {
 			r = lwm2m_send_empty_ack(client_ctx,
@@ -4214,7 +4214,7 @@ static int32_t retransmit_request(struct lwm2m_ctx *client_ctx,
 
 		remaining = p->t0 + p->timeout - timestamp;
 		if (remaining < 0) {
-			msg = find_msg(p, NULL);
+			msg = lwm2m_find_msg(p, NULL);
 			if (!msg) {
 				LOG_ERR("pending has no valid LwM2M message!");
 				coap_pending_clear(p);
@@ -4267,7 +4267,7 @@ static int notify_message_reply_cb(const struct coap_packet *response,
 	/* remove observer on COAP_TYPE_RESET */
 	if (type == COAP_TYPE_RESET) {
 		if (reply->tkl > 0) {
-			msg = find_msg(NULL, reply);
+			msg = lwm2m_find_msg(NULL, reply);
 			ret = engine_remove_observer(msg->ctx, reply->token, reply->tkl);
 			if (ret) {
 				LOG_ERR("remove observe error: %d", ret);
@@ -4587,7 +4587,7 @@ static int socket_recv_message(struct lwm2m_ctx *client_ctx)
 
 		LOG_ERR("Error reading response: %d", errno);
 		if (client_ctx->fault_cb != NULL) {
-			client_ctx->fault_cb(errno);
+			client_ctx->fault_cb(client_ctx, errno);
 		}
 		return -errno;
 	}
@@ -4675,7 +4675,7 @@ static void socket_loop(void)
 					sock_fds[i].revents);
 				if (sock_ctx[i] != NULL &&
 				    sock_ctx[i]->fault_cb != NULL) {
-					sock_ctx[i]->fault_cb(EIO);
+					sock_ctx[i]->fault_cb(sock_ctx[i], EIO);
 				}
 				continue;
 			}
