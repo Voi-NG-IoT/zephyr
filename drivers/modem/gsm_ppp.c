@@ -449,7 +449,15 @@ attaching:
 	/* Clear attach_retry */
 	attach_retry = 0;
 
-	LOG_DBG("modem setup returned %d, %s", ret, "enable PPP");
+	/* Ensure PDP context is activated. This is likely a NOP for most
+	 * modem/SIM combos, but it is required for certain setups.
+	 */
+	(void)modem_cmd_send_nolock(
+		&gsm->context.iface, &gsm->context.cmd_handler,
+		NULL, 0, "AT+CGACT=1,1",
+		&gsm->sem_response, GSM_CMD_SETUP_TIMEOUT);
+
+	LOG_DBG("modem setup complete, %s", "enable PPP");
 
 	ret = modem_cmd_handler_setup_cmds_nolock(&gsm->context.iface,
 						  &gsm->context.cmd_handler,
