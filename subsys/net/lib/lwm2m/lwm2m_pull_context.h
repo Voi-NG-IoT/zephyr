@@ -5,6 +5,7 @@
 #define LWM2M_PACKAGE_URI_LEN 255
 struct firmware_pull_context;
 struct firmware_pull_context {
+	uint8_t obj_inst_id;
 	char uri[LWM2M_PACKAGE_URI_LEN];
 	int retry;
 	struct k_delayed_work firmware_work;

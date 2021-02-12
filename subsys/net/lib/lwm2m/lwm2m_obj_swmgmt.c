@@ -240,6 +240,7 @@ int lwm2m_swmgmt_set_install_package_cb(uint16_t obj_inst_id,
 {
 	struct lwm2m_swmgmt_data *instance = NULL;
 
+	instance = find_index(obj_inst_id);
 	if (!instance) {
 		return -ENOENT;
 	}
@@ -248,6 +249,7 @@ int lwm2m_swmgmt_set_install_package_cb(uint16_t obj_inst_id,
 		cb = callback_not_defined;
 	}
 
+	LOG_ERR("adding install cb %d", obj_inst_id);
 	instance->install_package_cb = cb;
 	return 0;
 }
@@ -257,6 +259,7 @@ int lwm2m_swmgmt_set_delete_package_cb(uint16_t obj_inst_id,
 {
 	struct lwm2m_swmgmt_data *instance = NULL;
 
+	instance = find_index(obj_inst_id);
 	if (!instance) {
 		return -ENOENT;
 	}
@@ -265,6 +268,7 @@ int lwm2m_swmgmt_set_delete_package_cb(uint16_t obj_inst_id,
 		cb = callback_not_defined;
 	}
 
+	LOG_ERR("adding delete cb %d", obj_inst_id);
 	instance->delete_package_cb = cb;
 	return 0;
 }
@@ -274,6 +278,7 @@ int lwm2m_swmgmt_set_write_package_cb(uint16_t obj_inst_id,
 {
 	struct lwm2m_swmgmt_data *instance = NULL;
 
+	instance = find_index(obj_inst_id);
 	if (!instance) {
 		return -ENOENT;
 	}
@@ -282,6 +287,7 @@ int lwm2m_swmgmt_set_write_package_cb(uint16_t obj_inst_id,
 		cb = write_callback_not_defined;
 	}
 
+	LOG_ERR("adding write cb %d", obj_inst_id);
 	instance->write_package_cb = cb;
 	return 0;
 }
@@ -293,6 +299,7 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 		return -EINVAL;
 	}
 
+	LOG_ERR("%u event %u", instance->obj_inst_id, event);
 	switch (instance->update_state)
 	{
 	case UPD_STATE_INITIAL:
@@ -301,40 +308,43 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 			instance->update_state = UPD_STATE_DOWNLOAD_STARTED;
 			instance->update_result = UPD_RES_DOWNLOADING;
 			ret = 0;
-		break;
+			break;
 		default:
 			ret = -EINVAL;
-		break;
+			break;
 		}
+		break;
 	case UPD_STATE_DOWNLOAD_STARTED:
 		switch(event) {
 		case (EVENT_PKG_WRITTEN):
 			instance->update_state = UPD_STATE_DOWNLOADED;
 			instance->update_result = UPD_RES_INITIAL;
-		break;
+			break;
 		case (EVENT_DOWNLOAD_FAILED):
 			instance->update_state = UPD_STATE_INITIAL;
 			/* Update result update outside of function where
 			   the cause can be determined */
-		break;
+			break;
 		default:
 			ret = -EINVAL;
-		break;
+			break;
 		}
+		break;
 	case UPD_STATE_DOWNLOADED:
 		switch(event) {
 		case (EVENT_PKG_INTEGRITY_VERIFIED):
 			instance->update_state = UPD_STATE_DELIVERED;
 			instance->update_result = UPD_RES_INITIAL;
-		break;
+			break;
 		case (EVENT_PKG_INTEGRITY_FAILED):
 			instance->update_state = UPD_STATE_INITIAL;
 			instance->update_result = UPD_RES_PACKAGE_INTEGRITY_CHECK_FAILURE;
-		break;
+			break;
 		default:
 			ret = -EINVAL;
-		break;
+			break;
 		}
+		break;
 	case UPD_STATE_DELIVERED:
 		switch(event) {
 		case EVENT_INSTALL:
@@ -371,7 +381,8 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 			ret = -EINVAL;
 			break;
 
-	} break;
+		}
+		break;
 	case UPD_STATE_INSTALLED:
 		switch(event) {
 		case EVENT_ACTIVATE:
@@ -379,7 +390,7 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 			if (ret == 0) {
 				instance->activation_state = true;
 			}
-		break;
+			break;
 		case EVENT_DEACTIVATE:
 			ret = instance->deactivate_cb(instance->obj_inst_id);
 			if (ret == 0) {
@@ -396,14 +407,15 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 				instance->update_state = UPD_STATE_INITIAL;
 				instance->update_result = UPD_RES_INITIAL;
 			}
-		break;
+			break;
 		default:
 			ret = -EINVAL;
-		break;
+			break;
 		}
+		break;
 	default:
 		ret = -EINVAL;
-	break;
+		break;
 	}
 
 	return ret;
@@ -540,6 +552,7 @@ static int package_uri_write_cb(uint16_t obj_inst_id, uint16_t res_id,
 				uint16_t res_inst_id, uint8_t *data, uint16_t data_len,
 				bool last_block, size_t total_size)
 {
+	LOG_ERR("package_uri_write_cb: %u",obj_inst_id);
 #ifdef CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_SUPPORT
 	int error_code;
 	struct lwm2m_swmgmt_data *instance = NULL;
@@ -547,6 +560,7 @@ static int package_uri_write_cb(uint16_t obj_inst_id, uint16_t res_id,
 
 	instance->pull_context.write_cb = instance->write_package_cb;
 	instance->pull_context.result_cb = set_update_result_from_error;
+	instance->pull_context.obj_inst_id = instance->obj_inst_id;
 
 	strncpy(instance->pull_context.uri, instance->package_uri, PACKAGE_URI_LEN - 1);
 	error_code = lwm2m_pull_context_start_transfer(&instance->pull_context, K_NO_WAIT);
@@ -598,6 +612,7 @@ static struct lwm2m_engine_obj_inst *swmgmt_create(uint16_t obj_inst_id)
 	(void)memset(instance->package_name, 0, PACKAGE_NAME_LEN);
 	(void)memset(instance->package_version, 0, PACKAGE_VERSION_LEN);
 
+	instance->obj_inst_id = index;
 	instance->update_state = 0;
 	instance->update_result = 0;
 	instance->activation_state = false;

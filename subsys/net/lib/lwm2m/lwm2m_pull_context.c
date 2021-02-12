@@ -323,7 +323,10 @@ do_firmware_transfer_reply_cb(const struct coap_packet *response,
 					goto error;
 				}
 
-				ret = write_cb(0, 0, 0,
+				
+				LOG_ERR("writing: %d",context->obj_inst_id );
+				ret = write_cb(context->obj_inst_id,
+								0, 0,
 					       write_buf, len,
 					       last_block &&
 							(payload_len == 0U),
@@ -395,9 +398,11 @@ static void firmware_transfer(struct k_work *work)
 
 	ret = k_sem_take(&lwm2m_pull_sem, K_NO_WAIT);
 	if (ret) {
+		LOG_ERR("delayed work");
 		k_delayed_work_submit(delayed_work, K_SECONDS(5));
 		return;
 	}
+		LOG_ERR("no delayed work");
 
 	context = CONTAINER_OF(delayed_work, struct firmware_pull_context, firmware_work);
 
