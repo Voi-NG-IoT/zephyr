@@ -270,12 +270,25 @@ static int do_registration_reply_cb(const struct coap_packet *response,
 {
 	struct coap_option options[2];
 	uint8_t code;
+	uint8_t type;
 	int ret;
 
 	code = coap_header_get_code(response);
-	LOG_DBG("Registration callback (code:%u.%u)",
+	type = coap_header_get_type(response);
+	LOG_DBG("Registration callback (code:%u.%u type:%u)",
 		COAP_RESPONSE_CODE_CLASS(code),
-		COAP_RESPONSE_CODE_DETAIL(code));
+		COAP_RESPONSE_CODE_DETAIL(code),
+		type);
+
+	if (!code && type == 2) {
+		// CODE == 0 -> Empty ACK
+
+		/* set reply->user_data to error to avoid releasing */
+		reply->user_data = (void*) COAP_REPLY_STATUS_ERROR;
+
+		LOG_INF("Received empty ACK. Ignoring");
+		return 0;
+	}
 
 	/* check state and possibly set registration to done */
 	if (code == COAP_RESPONSE_CODE_CREATED) {
@@ -337,11 +350,24 @@ static int do_update_reply_cb(const struct coap_packet *response,
 			      const struct sockaddr *from)
 {
 	uint8_t code;
+	uint8_t type;
 
 	code = coap_header_get_code(response);
-	LOG_INF("Update callback (code:%u.%u)",
+	type = coap_header_get_type(response);
+	LOG_INF("Update callback (code:%u.%u type:%u)",
 		COAP_RESPONSE_CODE_CLASS(code),
-		COAP_RESPONSE_CODE_DETAIL(code));
+		COAP_RESPONSE_CODE_DETAIL(code),
+		type);
+
+	if (!code && type == 2) {
+		// CODE == 0 -> Empty ACK
+
+		/* set reply->user_data to error to avoid releasing */
+		reply->user_data = (void*) COAP_REPLY_STATUS_ERROR;
+
+		LOG_INF("Received empty ACK. Ignoring");
+		return 0;
+	}
 
 	/* If NOT_FOUND just continue on */
 	if ((code == COAP_RESPONSE_CODE_CHANGED) ||
