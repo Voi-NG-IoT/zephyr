@@ -323,7 +323,6 @@ do_firmware_transfer_reply_cb(const struct coap_packet *response,
 					goto error;
 				}
 
-				
 				LOG_ERR("writing: %d",context->obj_inst_id );
 				ret = write_cb(context->obj_inst_id,
 								0, 0,
@@ -458,6 +457,14 @@ int lwm2m_pull_context_start_transfer(struct firmware_pull_context *ctx,
 		LOG_DBG("Context failed sanity check. Verify initialization!");
 		return -EINVAL;
 	}
+
+	/* close old socket */
+	if (ctx->firmware_ctx.sock_fd > -1) {
+		lwm2m_engine_context_close(&ctx->firmware_ctx);
+	}
+	(void)memset(&ctx->firmware_ctx, 0, sizeof(struct lwm2m_ctx));
+	ctx->firmware_ctx.sock_fd = -1;
+	ctx->retry = 0;
 
 	k_delayed_work_init(&ctx->firmware_work, firmware_transfer);
 	k_delayed_work_submit(&ctx->firmware_work, K_NO_WAIT);
