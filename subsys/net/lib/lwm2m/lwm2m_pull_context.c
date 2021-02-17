@@ -398,11 +398,9 @@ static void firmware_transfer(struct k_work *work)
 
 	ret = k_sem_take(&lwm2m_pull_sem, K_NO_WAIT);
 	if (ret) {
-		LOG_ERR("delayed work");
 		k_delayed_work_submit(delayed_work, K_SECONDS(5));
 		return;
 	}
-		LOG_ERR("no delayed work");
 
 	context = CONTAINER_OF(delayed_work, struct firmware_pull_context, firmware_work);
 
@@ -460,17 +458,6 @@ int lwm2m_pull_context_start_transfer(struct firmware_pull_context *ctx,
 		LOG_DBG("Context failed sanity check. Verify initialization!");
 		return -EINVAL;
 	}
-
-	context = ctx;
-
-	/* close old socket */
-	if (ctx->firmware_ctx.sock_fd > -1) {
-		lwm2m_engine_context_close(&ctx->firmware_ctx);
-	}
-
-	(void)memset(&ctx->firmware_ctx, 0, sizeof(struct lwm2m_ctx));
-	ctx->retry = 0;
-
 
 	k_delayed_work_init(&ctx->firmware_work, firmware_transfer);
 	k_delayed_work_submit(&ctx->firmware_work, K_NO_WAIT);

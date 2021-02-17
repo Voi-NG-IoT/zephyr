@@ -57,7 +57,7 @@ static struct lwm2m_engine_obj_field fields[] = {
 	OBJ_FIELD(SWMGMT_PACKAGE_NAME_ID, R, STRING),
 	OBJ_FIELD(SWMGMT_PACKAGE_VERSION_ID, R, STRING),
 	OBJ_FIELD(SWMGMT_PACKAGE_ID, W_OPT, OPAQUE),
-	OBJ_FIELD(SWMGMT_PACKAGE_URI_ID, RW_OPT, STRING),
+	OBJ_FIELD(SWMGMT_PACKAGE_URI_ID, W_OPT, STRING),
 	OBJ_FIELD_EXECUTE(SWMGMT_INSTALL_ID),
 	OBJ_FIELD(SWMGMT_CHECKPOINT_ID, R_OPT, OBJLNK),
 	OBJ_FIELD_EXECUTE(SWMGMT_UNINSTALL_ID),
@@ -249,7 +249,6 @@ int lwm2m_swmgmt_set_install_package_cb(uint16_t obj_inst_id,
 		cb = callback_not_defined;
 	}
 
-	LOG_ERR("adding install cb %d", obj_inst_id);
 	instance->install_package_cb = cb;
 	return 0;
 }
@@ -268,7 +267,6 @@ int lwm2m_swmgmt_set_delete_package_cb(uint16_t obj_inst_id,
 		cb = callback_not_defined;
 	}
 
-	LOG_ERR("adding delete cb %d", obj_inst_id);
 	instance->delete_package_cb = cb;
 	return 0;
 }
@@ -287,7 +285,6 @@ int lwm2m_swmgmt_set_write_package_cb(uint16_t obj_inst_id,
 		cb = write_callback_not_defined;
 	}
 
-	LOG_ERR("adding write cb %d", obj_inst_id);
 	instance->write_package_cb = cb;
 	return 0;
 }
@@ -299,7 +296,6 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 		return -EINVAL;
 	}
 
-	LOG_ERR("%u event %u", instance->obj_inst_id, event);
 	switch (instance->update_state)
 	{
 	case UPD_STATE_INITIAL:
@@ -552,7 +548,6 @@ static int package_uri_write_cb(uint16_t obj_inst_id, uint16_t res_id,
 				uint16_t res_inst_id, uint8_t *data, uint16_t data_len,
 				bool last_block, size_t total_size)
 {
-	LOG_ERR("package_uri_write_cb: %u",obj_inst_id);
 #ifdef CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_SUPPORT
 	int error_code;
 	struct lwm2m_swmgmt_data *instance = NULL;
