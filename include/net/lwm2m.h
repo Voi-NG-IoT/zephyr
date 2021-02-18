@@ -375,6 +375,18 @@ int lwm2m_swmgmt_set_install_package_cb(uint16_t obj_inst_id, lwm2m_engine_user_
 int lwm2m_swmgmt_set_delete_package_cb(uint16_t obj_inst_id, lwm2m_engine_user_cb_t cb);
 
 /**
+ * @breif Set callback to read software package
+ *
+ * This callback will get called during read on package version attribute on
+ * the corresponding object instance is called
+ *
+ * @param[in] obj_inst_id The instance number to set the callback for.
+ *
+ * @return 0 on success, otherwise a negative integer.
+ */
+int lwm2m_swmgmt_set_read_package_cb(uint16_t obj_inst_id, lwm2m_engine_get_data_cb_t cb);
+
+/**
  * @brief Set data callback for software management block transfer.
  *
  * LwM2M clients use this function to register a callback for receiving the

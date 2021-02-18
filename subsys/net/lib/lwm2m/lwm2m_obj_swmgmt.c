@@ -77,6 +77,7 @@ static struct lwm2m_engine_res res[MAX_INSTANCE_COUNT][SWMGMT_MAX_ID];
 static struct lwm2m_engine_res_inst
 		res_inst[MAX_INSTANCE_COUNT][RESOURCE_INSTANCE_COUNT];
 
+static int fail = -ENOENT;
 #define UPD_STATE_INITIAL 0
 #define UPD_STATE_DOWNLOAD_STARTED 1
 #define UPD_STATE_DOWNLOADED 2
@@ -159,6 +160,7 @@ struct lwm2m_swmgmt_data {
 
 	bool activation_state;
 
+	lwm2m_engine_get_data_cb_t read_package_cb;
 	lwm2m_engine_user_cb_t install_package_cb;
 	lwm2m_engine_user_cb_t upgrade_package_cb;
 	lwm2m_engine_user_cb_t delete_package_cb;
@@ -183,6 +185,13 @@ static int write_callback_not_defined(uint16_t obj_inst_id, uint16_t res_id,
 {
 	LOG_ERR("Callback not defined for inst %u", obj_inst_id);
 	return -EINVAL;
+}
+
+static void *read_callback_not_defined(uint16_t obj_inst_id,
+						uint16_t res_id, uint16_t res_inst_id, size_t *data_len)
+{
+	LOG_ERR("Callback not defined for inst %u", obj_inst_id);
+	return &fail;
 }
 
 static struct lwm2m_swmgmt_data swmgmt_data[MAX_INSTANCE_COUNT] = { 0 };
@@ -289,9 +298,46 @@ int lwm2m_swmgmt_set_write_package_cb(uint16_t obj_inst_id,
 	return 0;
 }
 
+int lwm2m_swmgmt_set_read_package_cb(uint16_t obj_inst_id,
+                                      lwm2m_engine_get_data_cb_t cb)
+{
+	struct lwm2m_swmgmt_data *instance = NULL;
+
+	instance = find_index(obj_inst_id);
+	if (!instance) {
+		return -ENOENT;
+	}
+
+	if (!cb) {
+		cb = read_callback_not_defined;
+	}
+
+	instance->read_package_cb = cb;
+	return 0;
+}
+
+void *state_read_pkg_version(uint16_t obj_inst_id,
+									 uint16_t res_id, uint16_t res_inst_id, size_t *data_len)
+{
+	struct lwm2m_swmgmt_data *instance = NULL;
+	void *result = NULL;
+
+	instance = find_index(obj_inst_id);
+	if (!instance) {
+		return &fail;;
+	}
+
+	if(instance->read_package_cb) {
+		result = instance->read_package_cb(obj_inst_id, res_id,
+									res_inst_id, data_len);
+	}
+
+	return result;
+}
+
 static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 {
-	int ret;
+	int ret = 0;;
 	if (!instance) {
 		return -EINVAL;
 	}
@@ -630,8 +676,9 @@ static struct lwm2m_engine_obj_inst *swmgmt_create(uint16_t obj_inst_id)
 	INIT_OBJ_RES_DATA(SWMGMT_PACKAGE_NAME_ID, res[index], i, res_inst[index], j,
 		     &instance->package_name, PACKAGE_NAME_LEN);
 
-	INIT_OBJ_RES_DATA(SWMGMT_PACKAGE_VERSION_ID, res[index], i, res_inst[index], j,
-		     &instance->package_version, PACKAGE_VERSION_LEN);
+	INIT_OBJ_RES(SWMGMT_PACKAGE_VERSION_ID, res[index], i, res_inst[index], j, 1, true,
+		     &instance->package_version, PACKAGE_VERSION_LEN,
+			 state_read_pkg_version, NULL, NULL, NULL);
 
 	INIT_OBJ_RES_OPT(SWMGMT_PACKAGE_ID, res[index], i, res_inst[index], j, 1, true,
 	                 NULL, NULL, package_write_cb, NULL);

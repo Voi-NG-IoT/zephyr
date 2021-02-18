@@ -323,7 +323,6 @@ do_firmware_transfer_reply_cb(const struct coap_packet *response,
 					goto error;
 				}
 
-				LOG_ERR("writing: %d",context->obj_inst_id );
 				ret = write_cb(context->obj_inst_id,
 								0, 0,
 					       write_buf, len,
