@@ -354,7 +354,7 @@ void __weak gsm_ppp_application_setup(struct modem_context *context,
 	ARG_UNUSED(sem);
 }
 
-static void modem_autobaud(struct gsm_modem *gsm)
+static int modem_autobaud(struct gsm_modem *gsm)
 {
 	int ret;
 	struct uart_config cfg;
@@ -363,20 +363,20 @@ static void modem_autobaud(struct gsm_modem *gsm)
 
 	if (!uart || uart_config_get(uart, &cfg) != 0) {
 		LOG_ERR("Mdm UART not inited?");
-		return;
+		return -ENOENT;
 	}
 
 	int baudrates[] = {
-		9600,
-		19200,
-		38400,
-		57600,
+		/* 9600, */
+		/* 19200, */
+		/* 38400, */
+		/* 57600, */
 		115200,
 		230400,
 		460800,
 		921600,
-		// 2900000,
-		// 3000000,
+		/* 2900000, */
+		/* 3000000, */
 	};
 
 	char at[] = "AT\r\n";
@@ -391,19 +391,35 @@ static void modem_autobaud(struct gsm_modem *gsm)
 					    &response_cmds[0],
 					    ARRAY_SIZE(response_cmds),
 					    "AT", &gsm->sem_response,
-					    GSM_CMD_AT_TIMEOUT);
+					    K_MSEC(300));
 		if (ret == 0) {
 			LOG_INF("Autobaud detected %d", cfg.baudrate);
-			break;
+			if (cfg.baudrate != 230400) {
+				ret = modem_cmd_send_nolock(&gsm->context.iface,
+							    &gsm->context.cmd_handler,
+							    &response_cmds[0],
+							    ARRAY_SIZE(response_cmds),
+							    "AT+IPR=230400", &gsm->sem_response,
+							    GSM_CMD_AT_TIMEOUT);
+				ret = modem_cmd_send_nolock(&gsm->context.iface,
+							    &gsm->context.cmd_handler,
+							    &response_cmds[0],
+							    ARRAY_SIZE(response_cmds),
+							    "AT&W", &gsm->sem_response,
+							    GSM_CMD_AT_TIMEOUT);
+				cfg.baudrate = 230400;
+				uart_configure(uart, &cfg);
+				k_sleep(K_SECONDS(1));
+				LOG_DBG("new baudrate = %d", cfg.baudrate);
+
+			}
+
+			return ret;
 		}
 
 	}
 
-	static bool once;
-	if (!once) {
-		cfg.baudrate = 921600;
-		/* uart_configure(uart, &cfg); */
-	}
+	return -EIO;
 
 }
 
@@ -752,8 +768,6 @@ static void gsm_configure(struct k_work *work)
 
 	LOG_DBG("Starting modem %p configuration", gsm);
 
-	modem_autobaud(gsm);
-
 	ret = modem_cmd_send_nolock(&gsm->context.iface,
 				    &gsm->context.cmd_handler,
 				    &response_cmds[0],
@@ -904,6 +918,11 @@ static int gsm_init(const struct device *device)
 	if (!gsm->iface) {
 		LOG_ERR("Couldn't find ppp net_if!");
 		return -ENODEV;
+	}
+
+	int ret = modem_autobaud(gsm);
+	if (ret) {
+		LOG_ERR("autobaud FAILED");
 	}
 
 	if (IS_ENABLED(CONFIG_GSM_PPP_AUTOSTART)) {
