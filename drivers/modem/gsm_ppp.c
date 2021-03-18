@@ -354,6 +354,59 @@ void __weak gsm_ppp_application_setup(struct modem_context *context,
 	ARG_UNUSED(sem);
 }
 
+static void modem_autobaud(struct gsm_modem *gsm)
+{
+	int ret;
+	struct uart_config cfg;
+	const struct device *uart =
+		device_get_binding(CONFIG_MODEM_GSM_UART_NAME);
+
+	if (!uart || uart_config_get(uart, &cfg) != 0) {
+		LOG_ERR("Mdm UART not inited?");
+		return;
+	}
+
+	int baudrates[] = {
+		9600,
+		19200,
+		38400,
+		57600,
+		115200,
+		230400,
+		460800,
+		921600,
+		// 2900000,
+		// 3000000,
+	};
+
+	char at[] = "AT\r\n";
+
+	for (int i = 0; i < ARRAY_SIZE(baudrates); i++) {
+		cfg.baudrate = baudrates[i];
+		uart_configure(uart, &cfg);
+
+		LOG_DBG("trying %d", cfg.baudrate);
+		ret = modem_cmd_send_nolock(&gsm->context.iface,
+					    &gsm->context.cmd_handler,
+					    &response_cmds[0],
+					    ARRAY_SIZE(response_cmds),
+					    "AT", &gsm->sem_response,
+					    GSM_CMD_AT_TIMEOUT);
+		if (ret == 0) {
+			LOG_INF("Autobaud detected %d", cfg.baudrate);
+			break;
+		}
+
+	}
+
+	static bool once;
+	if (!once) {
+		cfg.baudrate = 921600;
+		/* uart_configure(uart, &cfg); */
+	}
+
+}
+
 static void gsm_finalize_connection(struct gsm_modem *gsm)
 {
 	int ret;
@@ -698,6 +751,8 @@ static void gsm_configure(struct k_work *work)
 	int ret = -1;
 
 	LOG_DBG("Starting modem %p configuration", gsm);
+
+	modem_autobaud(gsm);
 
 	ret = modem_cmd_send_nolock(&gsm->context.iface,
 				    &gsm->context.cmd_handler,
