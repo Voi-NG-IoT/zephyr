@@ -394,12 +394,12 @@ static int modem_autobaud(struct gsm_modem *gsm)
 					    K_MSEC(300));
 		if (ret == 0) {
 			LOG_INF("Autobaud detected %d", cfg.baudrate);
-			if (cfg.baudrate != 230400) {
+			if (cfg.baudrate != 921600) {
 				ret = modem_cmd_send_nolock(&gsm->context.iface,
 							    &gsm->context.cmd_handler,
 							    &response_cmds[0],
 							    ARRAY_SIZE(response_cmds),
-							    "AT+IPR=230400", &gsm->sem_response,
+							    "AT+IPR=921600", &gsm->sem_response,
 							    GSM_CMD_AT_TIMEOUT);
 				ret = modem_cmd_send_nolock(&gsm->context.iface,
 							    &gsm->context.cmd_handler,
@@ -407,7 +407,7 @@ static int modem_autobaud(struct gsm_modem *gsm)
 							    ARRAY_SIZE(response_cmds),
 							    "AT&W", &gsm->sem_response,
 							    GSM_CMD_AT_TIMEOUT);
-				cfg.baudrate = 230400;
+				cfg.baudrate = 921600;
 				uart_configure(uart, &cfg);
 				k_sleep(K_SECONDS(1));
 				LOG_DBG("new baudrate = %d", cfg.baudrate);
@@ -520,17 +520,17 @@ attaching:
 
 #if defined(CONFIG_BOARD_WOLFENSTEIN)
 	/* For Quectel, dump the network info (LTE/WCDMA/etc) for debugging */
-	(void)modem_cmd_send_nolock(
-		&gsm->context.iface, &gsm->context.cmd_handler, NULL, 0,
-		"AT+QNWINFO", &gsm->sem_response, K_SECONDS(2));
+	// (void)modem_cmd_send_nolock(
+	// 	&gsm->context.iface, &gsm->context.cmd_handler, NULL, 0,
+	// 	"AT+QNWINFO", &gsm->sem_response, K_SECONDS(2));
 
 	/* Ensure PDP context is activated. This is likely a NOP for most
 	 * modem/SIM combos, but it is required for certain setups.
 	 */
-	(void)modem_cmd_send_nolock(
-		&gsm->context.iface, &gsm->context.cmd_handler,
-		NULL, 0, "AT+CGACT=1,1",
-		&gsm->sem_response, GSM_CMD_SETUP_TIMEOUT);
+	// (void)modem_cmd_send_nolock(
+	// 	&gsm->context.iface, &gsm->context.cmd_handler,
+	// 	NULL, 0, "AT+CGACT=1,1",
+	// 	&gsm->sem_response, GSM_CMD_SETUP_TIMEOUT);
 #endif
 
 	LOG_DBG("modem setup complete, %s", "enable PPP");
@@ -866,7 +866,7 @@ static int gsm_init(const struct device *device)
 	gsm->cmd_handler_data.match_buf_len = sizeof(gsm->cmd_match_buf);
 	gsm->cmd_handler_data.buf_pool = &gsm_recv_pool;
 	gsm->cmd_handler_data.alloc_timeout = K_NO_WAIT;
-	gsm->cmd_handler_data.eol = "\r";
+	gsm->cmd_handler_data.eol = "\r\n";
 
 	k_sem_init(&gsm->sem_response, 0, 1);
 
