@@ -22,12 +22,14 @@ LOG_MODULE_REGISTER(modem_gsm, CONFIG_MODEM_LOG_LEVEL);
 #include "modem_cmd_handler.h"
 #include "../console/gsm_mux.h"
 
-#define GSM_CMD_READ_BUF       128
-#define GSM_CMD_AT_TIMEOUT     K_SECONDS(2)
-#define GSM_CMD_SETUP_TIMEOUT  K_SECONDS(6)
-#define GSM_RX_STACK_SIZE      CONFIG_MODEM_GSM_RX_STACK_SIZE
-#define GSM_RECV_MAX_BUF       30
-#define GSM_RECV_BUF_SIZE      128
+#define GSM_CMD_READ_BUF                128
+#define GSM_CMD_AT_TIMEOUT              K_SECONDS(2)
+#define GSM_CMD_SETUP_TIMEOUT           K_SECONDS(6)
+#define GSM_RX_STACK_SIZE               CONFIG_MODEM_GSM_RX_STACK_SIZE
+#define GSM_RECV_MAX_BUF                30
+#define GSM_RECV_BUF_SIZE               128
+#define GSM_ATTACH_RETRY_DELAY_MSEC     1000
+
 
 /* During the modem setup, we first create DLCI control channel and then
  * PPP and AT channels. Currently the modem does not create possible GNSS
@@ -413,14 +415,15 @@ attaching:
 		 * attach_retries set, becomes 0 -> trigger full retry
 		 */
 		if (!gsm->attach_retries) {
-			gsm->attach_retries = CONFIG_MODEM_GSM_ATTACH_TIMEOUT;
+			gsm->attach_retries = CONFIG_MODEM_GSM_ATTACH_TIMEOUT *
+				MSEC_PER_SEC / GSM_ATTACH_RETRY_DELAY_MSEC;
 		} else {
 			gsm->attach_retries--;
 		}
 
 		LOG_DBG("Not attached, %s", "retrying...");
 		(void)k_delayed_work_submit(&gsm->gsm_configure_work,
-					    K_SECONDS(1));
+					    K_MSEC(GSM_ATTACH_RETRY_DELAY_MSEC));
 		return;
 	}
 
