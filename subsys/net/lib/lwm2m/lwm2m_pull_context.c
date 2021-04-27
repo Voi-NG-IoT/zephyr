@@ -418,6 +418,40 @@ error:
 	cleanup_context();
 }
 
+static void socket_fault_cb(int error)
+{
+	int ret;
+
+	LOG_ERR("FW update socket error: %d", error);
+
+	lwm2m_engine_context_close(&context->firmware_ctx);
+
+	/* Reopen the socket and retransmit the last request. */
+	lwm2m_engine_context_init(&context->firmware_ctx);
+	ret = lwm2m_socket_start(&context->firmware_ctx);
+	if (ret < 0) {
+		LOG_ERR("Failed to start a firmware-pull connection: %d", ret);
+		goto error;
+	}
+
+	ret = transfer_request(&context->block_ctx,
+			       NULL, LWM2M_MSG_TOKEN_GENERATE_NEW,
+			       do_firmware_transfer_reply_cb);
+	if (ret < 0) {
+		LOG_ERR("Failed to send a retry packet: %d", ret);
+		goto error;
+	}
+
+	return;
+
+error:
+	/* Abort retries. */
+	context->retry = PACKET_TRANSFER_RETRY_MAX;
+	context->result_cb(context, ret);
+	cleanup_context();
+}
+
+
 int lwm2m_pull_context_start_transfer(struct firmware_pull_context *ctx,
                                       k_timeout_t timeout)
 {
@@ -433,6 +467,7 @@ int lwm2m_pull_context_start_transfer(struct firmware_pull_context *ctx,
 
 	(void)memset(&ctx->firmware_ctx, 0, sizeof(struct lwm2m_ctx));
 	ctx->firmware_ctx.sock_fd = -1;
+	ctx->firmware_ctx.fault_cb = socket_fault_cb;
 	ctx->retry = 0;
 
 	k_delayed_work_init(&ctx->firmware_work, firmware_transfer);
