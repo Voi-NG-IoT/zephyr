@@ -466,7 +466,7 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 	return ret;
 }
 
-static int install_cb(uint16_t obj_inst_id)
+static int install_cb(uint16_t obj_inst_id, uint8_t *args, uint16_t args_len)
 {
 	struct lwm2m_swmgmt_data *instance = NULL;
 	instance = find_index(obj_inst_id);
@@ -488,7 +488,7 @@ int lwm2m_swmgmt_install_completed(uint16_t obj_inst_id, int error_code)
 	return error_code;
 }
 
-static int uninstall_cb(uint16_t obj_inst_id)
+static int uninstall_cb(uint16_t obj_inst_id, uint8_t *args, uint16_t args_len)
 {
 	/*
 	 * TODO Implement handling for "ForUpdate".
@@ -501,7 +501,7 @@ static int uninstall_cb(uint16_t obj_inst_id)
 	return handle_event(instance, EVENT_DELETE_PACKAGE);
 }
 
-static int activate_cb(uint16_t obj_inst_id)
+static int activate_cb(uint16_t obj_inst_id, uint8_t *args, uint16_t args_len)
 {
 	struct lwm2m_swmgmt_data *instance = NULL;
 	instance = find_index(obj_inst_id);
@@ -509,7 +509,7 @@ static int activate_cb(uint16_t obj_inst_id)
 	return handle_event(instance, EVENT_ACTIVATE);
 }
 
-static int deactivate_cb(uint16_t obj_inst_id)
+static int deactivate_cb(uint16_t obj_inst_id, uint8_t *args, uint16_t args_len)
 {
 	struct lwm2m_swmgmt_data *instance = NULL;
 	instance = find_index(obj_inst_id);
