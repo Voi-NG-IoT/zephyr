@@ -12,103 +12,13 @@
 #include <arch/arm/aarch64/arm_mmu.h>
 #include <linker/linker-defs.h>
 #include <sys/util.h>
-
-/* Set below flag to get debug prints */
-#define MMU_DEBUG_PRINTS	0
-/* To get prints from MMU driver, it has to initialized after console driver */
-#define MMU_DEBUG_PRIORITY	70
-
-#if MMU_DEBUG_PRINTS
-/* To dump page table entries while filling them, set DUMP_PTE macro */
-#define DUMP_PTE		0
-#define MMU_DEBUG(fmt, ...)	printk(fmt, ##__VA_ARGS__)
-#else
-#define MMU_DEBUG(...)
-#endif
-
-/* We support only 4kB translation granule */
-#define PAGE_SIZE_SHIFT		12U
-#define PAGE_SIZE		(1U << PAGE_SIZE_SHIFT)
-#define XLAT_TABLE_SIZE_SHIFT   PAGE_SIZE_SHIFT /* Size of one complete table */
-#define XLAT_TABLE_SIZE		(1U << XLAT_TABLE_SIZE_SHIFT)
-
-#define XLAT_TABLE_ENTRY_SIZE_SHIFT	3U /* Each table entry is 8 bytes */
-#define XLAT_TABLE_LEVEL_MAX	3U
-
-#define XLAT_TABLE_ENTRIES_SHIFT \
-			(XLAT_TABLE_SIZE_SHIFT - XLAT_TABLE_ENTRY_SIZE_SHIFT)
-#define XLAT_TABLE_ENTRIES	(1U << XLAT_TABLE_ENTRIES_SHIFT)
-
-/* Address size covered by each entry at given translation table level */
-#define L3_XLAT_VA_SIZE_SHIFT	PAGE_SIZE_SHIFT
-#define L2_XLAT_VA_SIZE_SHIFT	\
-			(L3_XLAT_VA_SIZE_SHIFT + XLAT_TABLE_ENTRIES_SHIFT)
-#define L1_XLAT_VA_SIZE_SHIFT	\
-			(L2_XLAT_VA_SIZE_SHIFT + XLAT_TABLE_ENTRIES_SHIFT)
-#define L0_XLAT_VA_SIZE_SHIFT	\
-			(L1_XLAT_VA_SIZE_SHIFT + XLAT_TABLE_ENTRIES_SHIFT)
-
-#define LEVEL_TO_VA_SIZE_SHIFT(level) \
-				(PAGE_SIZE_SHIFT + (XLAT_TABLE_ENTRIES_SHIFT * \
-				(XLAT_TABLE_LEVEL_MAX - (level))))
-
-/* Virtual Address Index within given translation table level */
-#define XLAT_TABLE_VA_IDX(va_addr, level) \
-	((va_addr >> LEVEL_TO_VA_SIZE_SHIFT(level)) & (XLAT_TABLE_ENTRIES - 1))
-
-/*
- * Calculate the initial translation table level from CONFIG_ARM64_VA_BITS
- * For a 4 KB page size,
- * (va_bits <= 21)	 - base level 3
- * (22 <= va_bits <= 30) - base level 2
- * (31 <= va_bits <= 39) - base level 1
- * (40 <= va_bits <= 48) - base level 0
- */
-#define GET_XLAT_TABLE_BASE_LEVEL(va_bits)	\
-	((va_bits > L0_XLAT_VA_SIZE_SHIFT)	\
-	? 0U					\
-	: (va_bits > L1_XLAT_VA_SIZE_SHIFT)	\
-	? 1U					\
-	: (va_bits > L2_XLAT_VA_SIZE_SHIFT)	\
-	? 2U : 3U)
-
-#define XLAT_TABLE_BASE_LEVEL	GET_XLAT_TABLE_BASE_LEVEL(CONFIG_ARM64_VA_BITS)
-
-#define GET_NUM_BASE_LEVEL_ENTRIES(va_bits)	\
-	(1U << (va_bits - LEVEL_TO_VA_SIZE_SHIFT(XLAT_TABLE_BASE_LEVEL)))
-
-#define NUM_BASE_LEVEL_ENTRIES	GET_NUM_BASE_LEVEL_ENTRIES(CONFIG_ARM64_VA_BITS)
-
-#if DUMP_PTE
-#define L0_SPACE ""
-#define L1_SPACE "  "
-#define L2_SPACE "    "
-#define L3_SPACE "      "
-#define XLAT_TABLE_LEVEL_SPACE(level)		\
-	(((level) == 0) ? L0_SPACE :		\
-	((level) == 1) ? L1_SPACE :		\
-	((level) == 2) ? L2_SPACE : L3_SPACE)
-#endif
+#include "arm_mmu.h"
 
 static uint64_t base_xlat_table[NUM_BASE_LEVEL_ENTRIES]
 		__aligned(NUM_BASE_LEVEL_ENTRIES * sizeof(uint64_t));
 
 static uint64_t xlat_tables[CONFIG_MAX_XLAT_TABLES][XLAT_TABLE_ENTRIES]
 		__aligned(XLAT_TABLE_ENTRIES * sizeof(uint64_t));
-
-#if (CONFIG_ARM64_PA_BITS == 48)
-#define TCR_PS_BITS TCR_PS_BITS_256TB
-#elif (CONFIG_ARM64_PA_BITS == 44)
-#define TCR_PS_BITS TCR_PS_BITS_16TB
-#elif (CONFIG_ARM64_PA_BITS == 42)
-#define TCR_PS_BITS TCR_PS_BITS_4TB
-#elif (CONFIG_ARM64_PA_BITS == 40)
-#define TCR_PS_BITS TCR_PS_BITS_1TB
-#elif (CONFIG_ARM64_PA_BITS == 36)
-#define TCR_PS_BITS TCR_PS_BITS_64GB
-#else
-#define TCR_PS_BITS TCR_PS_BITS_4GB
-#endif
 
 /* Translation table control register settings */
 static uint64_t get_tcr(int el)
@@ -191,8 +101,23 @@ static void set_pte_block_desc(uint64_t *pte, uint64_t addr_pa,
 	/* NS bit for security memory access from secure state */
 	desc |= (attrs & MT_NS) ? PTE_BLOCK_DESC_NS : 0;
 
+	/*
+	 * AP bits for EL0 / ELh Data access permission
+	 *
+	 *   AP[2:1]   ELh  EL0
+	 * +--------------------+
+	 *     00      RW   NA
+	 *     01      RW   RW
+	 *     10      RO   NA
+	 *     11      RO   RO
+	 */
+
 	/* AP bits for Data access permission */
 	desc |= (attrs & MT_RW) ? PTE_BLOCK_DESC_AP_RW : PTE_BLOCK_DESC_AP_RO;
+
+	/* Mirror permissions to EL0 */
+	desc |= (attrs & MT_RW_AP_ELx) ?
+		 PTE_BLOCK_DESC_AP_ELx : PTE_BLOCK_DESC_AP_EL_HIGHER;
 
 	/* the access flag */
 	desc |= PTE_BLOCK_DESC_AF;
@@ -218,8 +143,13 @@ static void set_pte_block_desc(uint64_t *pte, uint64_t addr_pa,
 	case MT_NORMAL_NC:
 	case MT_NORMAL:
 		/* Make Normal RW memory as execute never */
-		if ((attrs & MT_RW) || (attrs & MT_EXECUTE_NEVER))
+		if ((attrs & MT_RW) || (attrs & MT_P_EXECUTE_NEVER))
 			desc |= PTE_BLOCK_DESC_PXN;
+
+		if (((attrs & MT_RW) && (attrs & MT_RW_AP_ELx)) ||
+		     (attrs & MT_U_EXECUTE_NEVER))
+			desc |= PTE_BLOCK_DESC_UXN;
+
 		if (mem_type == MT_NORMAL)
 			desc |= PTE_BLOCK_DESC_INNER_SHARE;
 		else
@@ -233,7 +163,9 @@ static void set_pte_block_desc(uint64_t *pte, uint64_t addr_pa,
 		  ((mem_type == MT_NORMAL_NC) ? "NC" : "DEV"));
 	MMU_DEBUG((attrs & MT_RW) ? "-RW" : "-RO");
 	MMU_DEBUG((attrs & MT_NS) ? "-NS" : "-S");
-	MMU_DEBUG((attrs & MT_EXECUTE_NEVER) ? "-XN" : "-EXEC");
+	MMU_DEBUG((attrs & MT_RW_AP_ELx) ? "-ELx" : "-ELh");
+	MMU_DEBUG((attrs & MT_P_EXECUTE_NEVER) ? "-PXN" : "-PX");
+	MMU_DEBUG((attrs & MT_U_EXECUTE_NEVER) ? "-UXN" : "-UX");
 	MMU_DEBUG("\n");
 #endif
 
@@ -333,13 +265,13 @@ static const struct arm_mmu_region mmu_zephyr_regions[] = {
 	MMU_REGION_FLAT_ENTRY("zephyr_code",
 			      (uintptr_t)_image_text_start,
 			      (uintptr_t)_image_text_size,
-			      MT_CODE | MT_SECURE),
+			      MT_NORMAL | MT_P_RX_U_NA | MT_SECURE),
 
 	/* Mark rodata segment cacheable, read only and execute-never */
 	MMU_REGION_FLAT_ENTRY("zephyr_rodata",
 			      (uintptr_t)_image_rodata_start,
 			      (uintptr_t)_image_rodata_size,
-			      MT_RODATA | MT_SECURE),
+			      MT_NORMAL | MT_P_RO_U_NA | MT_SECURE),
 
 	/* Mark rest of the zephyr execution regions (data, bss, noinit, etc.)
 	 * cacheable, read-write
@@ -348,7 +280,7 @@ static const struct arm_mmu_region mmu_zephyr_regions[] = {
 	MMU_REGION_FLAT_ENTRY("zephyr_data",
 			      (uintptr_t)__kernel_ram_start,
 			      (uintptr_t)__kernel_ram_size,
-			      MT_NORMAL | MT_RW | MT_SECURE),
+			      MT_NORMAL | MT_P_RW_U_NA | MT_SECURE),
 };
 
 static void setup_page_tables(void)
