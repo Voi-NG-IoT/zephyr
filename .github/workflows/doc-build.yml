@@ -14,6 +14,9 @@ on:
     - 'subsys/testsuite/ztest/include/**'
     - 'tests/**'
     - '.known-issues/doc/**'
+    - '**/Kconfig*'
+    - 'west.yml'
+    - '.github/workflows/doc-build.yml'
 
 jobs:
   build:

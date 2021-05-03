@@ -265,6 +265,8 @@ class KconfigCheck(ComplianceTest):
         soc_defconfig_file = os.path.join(tempfile.gettempdir(), "Kconfig.soc.defconfig")
         soc_file = os.path.join(tempfile.gettempdir(), "Kconfig.soc")
         soc_arch_file = os.path.join(tempfile.gettempdir(), "Kconfig.soc.arch")
+        shield_defconfig_file = os.path.join(tempfile.gettempdir(), "Kconfig.shield.defconfig")
+        shield_file = os.path.join(tempfile.gettempdir(), "Kconfig.shield")
         try:
             with open(soc_defconfig_file, 'w', encoding="utf-8") as fp:
                 fp.write(f'osource "{ZEPHYR_BASE}/soc/$(ARCH)/*/Kconfig.defconfig"\n')
@@ -275,6 +277,12 @@ class KconfigCheck(ComplianceTest):
             with open(soc_arch_file, 'w', encoding="utf-8") as fp:
                 fp.write(f'osource "{ZEPHYR_BASE}/soc/$(ARCH)/Kconfig"\n\
 osource "{ZEPHYR_BASE}/soc/$(ARCH)/*/Kconfig"\n')
+
+            with open(shield_defconfig_file, 'w', encoding="utf-8") as fp:
+                fp.write(f'osource "{ZEPHYR_BASE}/boards/shields/*/Kconfig.defconfig"\n')
+
+            with open(shield_file, 'w', encoding="utf-8") as fp:
+                fp.write(f'osource "{ZEPHYR_BASE}/boards/shields/*/Kconfig.shield"\n')
         except IOError as ex:
             self.error(ex.output)
 
@@ -568,7 +576,7 @@ class Codeowners(ComplianceTest):
         """
 
         # TODO: filter out files not in "git ls-files" (e.g.,
-        # sanity-out) _if_ the overhead isn't too high for a clean tree.
+        # twister-out) _if_ the overhead isn't too high for a clean tree.
         #
         # pathlib.match() doesn't support **, so it looks like we can't
         # recursively glob the output of ls-files directly, only real

@@ -51,6 +51,7 @@
  * _ENUM_IDX: property's value as an index into bindings enum
  * _EXISTS: property is defined
  * _IDX_<i>: logical index into property
+ * _IDX_<i>_EXISTS: logical index into property is defined
  * _IDX_<i>_PH: phandle array's phandle by index (or phandle, phandles)
  * _IDX_<i>_VAL_<val>: phandle array's specifier value by index
  * _IDX_<i>_VAL_<val>_EXISTS: cell value exists, by index
@@ -438,7 +439,7 @@
  *         into the given property, and 0 otherwise.
  */
 #define DT_PROP_HAS_IDX(node_id, prop, idx) \
-	((idx) < DT_PROP_LEN(node_id, prop))
+	IS_ENABLED(DT_CAT6(node_id, _P_, prop, _IDX_, idx, _EXISTS))
 
 /**
  * @brief Get the value at index "idx" in an array type property
@@ -594,6 +595,28 @@
  */
 #define DT_PROP_BY_PHANDLE_IDX(node_id, phs, idx, prop) \
 	DT_PROP(DT_PHANDLE_BY_IDX(node_id, phs, idx), prop)
+
+/**
+ * @brief Like DT_PROP_BY_PHANDLE_IDX(), but with a fallback to
+ * default_value.
+ *
+ * If the value exists, this expands to DT_PROP_BY_PHANDLE_IDX(node_id, phs,
+ * idx, prop). The default_value parameter is not expanded in this
+ * case.
+ *
+ * Otherwise, this expands to default_value.
+ *
+ * @param node_id node identifier
+ * @param phs lowercase-and-underscores property with type "phandle",
+ *            "phandles", or "phandle-array"
+ * @param idx logical index into "phs", which must be zero if "phs"
+ *            has type "phandle"
+ * @param prop lowercase-and-underscores property of the phandle's node
+ * @param default_value a fallback value to expand to
+ * @return the property's value
+ */
+#define DT_PROP_BY_PHANDLE_IDX_OR(node_id, phs, idx, prop, default_value) \
+	DT_PROP_OR(DT_PHANDLE_BY_IDX(node_id, phs, idx), prop, default_value)
 
 /**
  * @brief Get a property value from a phandle's node
@@ -1921,8 +1944,35 @@
 	UTIL_CAT(DT_ROOT, MACRO_MAP_CAT(DT_S_PREFIX, __VA_ARGS__))
 /** @internal helper for DT_PATH(): prepends _S_ to a node name */
 #define DT_S_PREFIX(name) _S_##name
-/** @internal concatenation helper, sometimes used to force expansion */
-#define DT_CAT(node_id, prop_suffix) node_id##prop_suffix
+
+/**
+ * @internal concatenation helper, 2 arguments
+ *
+ * This and the following macros are used to paste things together
+ * with "##" *after* forcing expansion on each argument.
+ *
+ * We could try to use something like UTIL_CAT(), but the compiler
+ * error messages from the util macros can be extremely long when they
+ * are misused. This unfortunately happens often with devicetree.h,
+ * since its macro-based API is fiddly and can be hard to get right.
+ *
+ * Keeping things brutally simple here hopefully makes some errors
+ * easier to read.
+ */
+#define DT_CAT(a1, a2) a1 ## a2
+/** @internal concatenation helper, 3 arguments */
+#define DT_CAT3(a1, a2, a3) a1 ## a2 ## a3
+/** @internal concatenation helper, 4 arguments */
+#define DT_CAT4(a1, a2, a3, a4) a1 ## a2 ## a3 ## a4
+/** @internal concatenation helper, 5 arguments */
+#define DT_CAT5(a1, a2, a3, a4, a5) a1 ## a2 ## a3 ## a4 ## a5
+/** @internal concatenation helper, 6 arguments */
+#define DT_CAT6(a1, a2, a3, a4, a5, a6) a1 ## a2 ## a3 ## a4 ## a5 ## a6
+/*
+ * If you need to define a bigger DT_CATN(), do so here. Don't leave
+ * any "holes" of undefined macros, please.
+ */
+
 /** @internal helper for node identifier macros to expand args */
 #define DT_DASH(...) MACRO_MAP_CAT(DT_DASH_PREFIX, __VA_ARGS__)
 /** @internal helper for DT_DASH(): prepends _ to a name */

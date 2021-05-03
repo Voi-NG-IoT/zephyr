@@ -73,6 +73,11 @@ enum {
 	FS_TYPE_EXTERNAL_BASE,
 };
 
+/** Flag prevents formatting device if requested file system not found */
+#define FS_MOUNT_FLAG_NO_FORMAT BIT(0)
+/** Flag makes mounted file system read-only */
+#define FS_MOUNT_FLAG_READ_ONLY BIT(1)
+
 /**
  * @brief File system mount info structure
  *
@@ -83,6 +88,7 @@ enum {
  * @param storage_dev Pointer to backend storage device
  * @param mountp_len Length of Mount point string
  * @param fs Pointer to File system interface of the mount point
+ * @param flags Mount flags
  */
 struct fs_mount_t {
 	sys_dnode_t node;
@@ -93,6 +99,7 @@ struct fs_mount_t {
 	/* fields filled by file system core */
 	size_t mountp_len;
 	const struct fs_file_system_t *fs;
+	uint8_t flags;
 };
 
 /**
@@ -201,6 +208,9 @@ struct fs_statvfs {
  *
  * @retval 0 on success;
  * @retval -EINVAL when a bad file name is given;
+ * @retval -EROFS when opening read-only file for write, or attempting to
+ *	   create a file on a system that has been mounted with the
+ *	   FS_MOUNT_FLAG_READ_ONLY flag;
  * @retval -ENOENT when the file path is not possible (bad mount point);
  * @retval <0 an other negative errno code, depending on a file system back-end.
  */
@@ -226,7 +236,10 @@ int fs_close(struct fs_file_t *zfp);
  * @param path Path to the file or directory to delete
  *
  * @retval 0 on success;
- * @retval <0 a negative errno code on error.
+ * @retval -EROFS if file is read-only, or when file system has been mounted
+ *	   with the FS_MOUNT_FLAG_READ_ONLY flag;
+ * @retval -ENOTSUP when not implemented by underlying file system driver;
+ * @retval <0 an other negative errno code on error.
  */
 int fs_unlink(const char *path);
 
@@ -248,7 +261,8 @@ int fs_unlink(const char *path);
  * @param to The destination path
  *
  * @retval 0 on success;
- * @retval <0 a negative errno code on error.
+ * @retval -ENOTSUP when not implemented by underlying file system driver;
+ * @retval <0 an other negative errno code on error.
  */
 int fs_rename(const char *from, const char *to);
 
@@ -283,7 +297,8 @@ ssize_t fs_read(struct fs_file_t *zfp, void *ptr, size_t size);
  * @param size Number of bytes to be written
  *
  * @retval >=0 a number of bytes written, on success;
- * @retval <0 a negative errno code on error.
+ * @retval -ENOTSUP when not implemented by underlying file system driver;
+ * @retval <0 an other negative errno code on error.
  */
 ssize_t fs_write(struct fs_file_t *zfp, const void *ptr, size_t size);
 
@@ -337,7 +352,8 @@ off_t fs_tell(struct fs_file_t *zfp);
  * @param length New size of the file in bytes
  *
  * @retval 0 on success;
- * @retval <0 a negative errno code on error.
+ * @retval -ENOTSUP when not implemented by underlying file system driver;
+ * @retval <0 an other negative errno code on error.
  */
 int fs_truncate(struct fs_file_t *zfp, off_t length);
 
@@ -365,7 +381,8 @@ int fs_sync(struct fs_file_t *zfp);
  * @param path Path to the directory to create
  *
  * @retval 0 on success;
- * @retval <0 a negative errno code on error
+ * @retval -ENOTSUP when not implemented by underlying file system driver;
+ * @retval <0 an other negative errno code on error
  */
 int fs_mkdir(const char *path);
 
@@ -420,6 +437,10 @@ int fs_closedir(struct fs_dir_t *zdp);
  * calling the file system specific mount function and adding
  * the mount point to mounted file system list.
  *
+ * @note Current implementation of ELM FAT driver allows only following mount
+ * points: "/RAM:","/NAND:","/CF:","/SD:","/SD2:","/USB:","/USB2:","/USB3:"
+ * or mount points that consist of single digit, e.g: "/0:", "/1:" and so forth.
+ *
  * @param mp Pointer to the fs_mount_t structure.  Referenced object
  *	     is not changed if the mount operation failed.
  *	     A reference is captured in the fs infrastructure if the
@@ -430,7 +451,9 @@ int fs_closedir(struct fs_dir_t *zdp);
  * @retval 0 on success;
  * @retval -ENOENT when file system type has not been registered;
  * @retval -ENOTSUP when not supported by underlying file system driver;
- * @retval <0 a other negative errno code on error.
+ * @retval -EROFS if system requires formatting but @c FS_MOUNT_FLAG_READ_ONLY
+ *	   has been set;
+ * @retval <0 an other negative errno code on error.
  */
 int fs_mount(struct fs_mount_t *mp);
 
@@ -492,7 +515,8 @@ int fs_stat(const char *path, struct fs_dirent *entry);
  * statistics
  *
  * @retval 0 on success;
- * @retval <0 negative errno code on error.
+ * @retval -ENOTSUP when not implemented by underlying file system driver;
+ * @retval <0 an other negative errno code on error.
  */
 int fs_statvfs(const char *path, struct fs_statvfs *stat);
 

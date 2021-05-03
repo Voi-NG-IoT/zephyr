@@ -11,6 +11,11 @@
 #include <kernel.h>
 #include <device.h>
 #include <soc.h>
+#include <stm32_ll_bus.h>
+#include <stm32_ll_exti.h>
+#include <stm32_ll_gpio.h>
+#include <stm32_ll_pwr.h>
+#include <stm32_ll_system.h>
 #include <drivers/gpio.h>
 #include <drivers/clock_control/stm32_clock_control.h>
 #include <pinmux/stm32/pinmux_stm32.h>
@@ -649,6 +654,6 @@ static int gpio_stm32_afio_init(const struct device *device)
 	return 0;
 }
 
-DEVICE_INIT(gpio_stm32_afio, "", gpio_stm32_afio_init, NULL, NULL, PRE_KERNEL_2, 0);
+SYS_DEVICE_DEFINE("gpio_stm32_afio", gpio_stm32_afio_init, NULL, PRE_KERNEL_2, 0);
 
 #endif /* CONFIG_SOC_SERIES_STM32F1X */

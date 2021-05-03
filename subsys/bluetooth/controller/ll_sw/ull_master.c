@@ -189,9 +189,9 @@ uint8_t ll_create_connection(uint16_t scan_interval, uint16_t scan_window,
 #endif /* CONFIG_BT_CTLR_PHY */
 
 #if defined(CONFIG_BT_CTLR_CONN_RSSI)
-	conn_lll->rssi_latest = 0x7F;
+	conn_lll->rssi_latest = BT_HCI_LE_RSSI_NOT_AVAILABLE;
 #if defined(CONFIG_BT_CTLR_CONN_RSSI_EVENT)
-	conn_lll->rssi_reported = 0x7F;
+	conn_lll->rssi_reported = BT_HCI_LE_RSSI_NOT_AVAILABLE;
 	conn_lll->rssi_sample_count = 0;
 #endif /* CONFIG_BT_CTLR_CONN_RSSI_EVENT */
 #endif /* CONFIG_BT_CTLR_CONN_RSSI */
@@ -287,7 +287,6 @@ uint8_t ll_create_connection(uint16_t scan_interval, uint16_t scan_window,
 	conn->llcp_phy.pause_tx = 0U;
 	conn->phy_pref_tx = ull_conn_default_phy_tx_get();
 	conn->phy_pref_rx = ull_conn_default_phy_rx_get();
-	conn->phy_pref_flags = 0U;
 #endif /* CONFIG_BT_CTLR_PHY */
 
 	conn->tx_head = conn->tx_ctrl = conn->tx_ctrl_last =
@@ -392,25 +391,33 @@ uint8_t ll_connect_disable(void **rx)
 	status = ull_scan_disable(0, scan);
 	if (!status) {
 		struct ll_conn *conn = (void *)HDR_LLL2EVT(conn_lll);
-		struct node_rx_ftr *ftr;
-		struct node_rx_pdu *cc;
+		struct node_rx_pdu *node_rx;
+		struct node_rx_cc *cc;
 		memq_link_t *link;
 
-		cc = (void *)&conn->llcp_terminate.node_rx;
-		link = cc->hdr.link;
+		node_rx = (void *)&conn->llcp_terminate.node_rx;
+		link = node_rx->hdr.link;
 		LL_ASSERT(link);
 
 		/* free the memq link early, as caller could overwrite it */
 		ll_rx_link_release(link);
 
-		cc->hdr.type = NODE_RX_TYPE_CONNECTION;
-		cc->hdr.handle = 0xffff;
-		*((uint8_t *)cc->pdu) = BT_HCI_ERR_UNKNOWN_CONN_ID;
+		node_rx->hdr.type = NODE_RX_TYPE_CONNECTION;
+		node_rx->hdr.handle = 0xffff;
 
-		ftr = &(cc->hdr.rx_ftr);
-		ftr->param = &scan->lll;
+		/* NOTE: struct llcp_terminate.node_rx has uint8_t member
+		 *       following the struct node_rx_hdr to store the reason.
+		 */
+		cc = (void *)node_rx->pdu;
+		cc->status = BT_HCI_ERR_UNKNOWN_CONN_ID;
 
-		*rx = cc;
+		/* NOTE: Since NODE_RX_TYPE_CONNECTION is also generated from
+		 *       LLL context for other cases, pass LLL context as
+		 *       parameter.
+		 */
+		node_rx->hdr.rx_ftr.param = &scan->lll;
+
+		*rx = node_rx;
 	}
 
 	return status;
@@ -743,6 +750,9 @@ void ull_master_ticker_cb(uint32_t ticks_at_expire, uint32_t remainder, uint16_t
 		return;
 	}
 
+#if defined(CONFIG_BT_CTLR_CONN_META)
+	conn->common.is_must_expire = (lazy == TICKER_LAZY_MUST_EXPIRE);
+#endif
 	/* If this is a must-expire callback, LLCP state machine does not need
 	 * to know. Will be called with lazy > 0 when scheduled in air.
 	 */

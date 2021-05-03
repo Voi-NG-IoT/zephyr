@@ -83,7 +83,7 @@
 
 #define conn_mss(_conn)					\
 	((_conn)->recv_options.mss_found ?		\
-	 (_conn)->recv_options.mss : NET_IPV6_MTU)
+	 (_conn)->recv_options.mss : (uint16_t)NET_IPV6_MTU)
 
 #define conn_state(_conn, _s)						\
 ({									\
@@ -99,7 +99,7 @@
 		"send_win=%hu, mss=%hu",				\
 		(_conn), net_pkt_get_len((_conn)->send_data),		\
 		conn->unacked_len, conn->send_win,			\
-		conn_mss((_conn)));					\
+		(uint16_t)conn_mss((_conn)));				\
 	NET_DBG("conn: %p send_data_timer=%hu, send_data_retries=%hu",	\
 		(_conn),						\
 		(bool)k_delayed_work_remaining_get(&(_conn)->send_data_timer),\
@@ -230,3 +230,5 @@ struct tcp { /* TCP connection */
 
 #define FL(_fl, _op, _mask, _args...)					\
 	_flags(_fl, _op, _mask, strlen("" #_args) ? _args : true)
+
+typedef void (*net_tcp_cb_t)(struct tcp *conn, void *user_data);

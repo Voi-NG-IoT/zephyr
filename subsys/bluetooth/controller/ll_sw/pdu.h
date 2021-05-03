@@ -27,27 +27,35 @@
 #define INITA_SIZE    BDADDR_SIZE
 #define TARGETA_SIZE  BDADDR_SIZE
 #define LLDATA_SIZE   22
-#define CTE_INFO_SIZE 1
-#define TX_PWR_SIZE   1
-#define ACAD_SIZE     0
+
+/* Constant offsets in extended header (TargetA is present in PDUs with AdvA) */
+#define ADVA_OFFSET   0
+#define TGTA_OFFSET   (ADVA_OFFSET + BDADDR_SIZE)
 
 #define BYTES2US(bytes, phy) (((bytes)<<3)/BIT((phy&0x3)>>1))
 
 /* Advertisement channel maximum legacy payload size */
-#define PDU_AC_PAYLOAD_SIZE_MAX 37
+#define PDU_AC_LEG_PAYLOAD_SIZE_MAX 37
 /* Advertisement channel maximum extended payload size */
-#define PDU_AC_EXT_PAYLOAD_SIZE_MAX 251
-/* Advertisement channel minimum extended payload size */
-#define PDU_AC_EXT_PAYLOAD_SIZE_MIN (offsetof(pdu_adv_com_ext_adv, \
-					      ext_hdr_adi_adv_data) + \
-				     ADVA_SIZE + \
-				     TARGETA_SIZE + \
-				     CTE_INFO_SIZE + \
-				     sizeof(struct pdu_adv_adi) + \
-				     sizeof(struct pdu_adv_aux_ptr) + \
-				     sizeof(struct pdu_adv_sync_info) + \
-				     TX_PWR_SIZE + \
-				     ACAD_SIZE)
+#define PDU_AC_EXT_PAYLOAD_SIZE_MAX 255
+
+/* Advertisement channel maximum payload size */
+#if defined(CONFIG_BT_CTLR_ADV_EXT)
+#define PDU_AC_EXT_HEADER_SIZE_MAX  63
+/* TODO: PDU_AC_EXT_PAYLOAD_OVERHEAD can be reduced based on supported
+ *       features, like omitting support for periodic advertising will reduce
+ *       18 octets in the Common Extended Advertising Payload Format.
+ */
+#define PDU_AC_EXT_PAYLOAD_OVERHEAD (offsetof(struct pdu_adv_com_ext_adv, \
+					      ext_hdr_adv_data) + \
+				     PDU_AC_EXT_HEADER_SIZE_MAX)
+#define PDU_AC_PAYLOAD_SIZE_MAX     MAX(MIN((PDU_AC_EXT_PAYLOAD_OVERHEAD + \
+					     CONFIG_BT_CTLR_ADV_DATA_LEN_MAX), \
+					    PDU_AC_EXT_PAYLOAD_SIZE_MAX), \
+					PDU_AC_LEG_PAYLOAD_SIZE_MAX)
+#else
+#define PDU_AC_PAYLOAD_SIZE_MAX     PDU_AC_LEG_PAYLOAD_SIZE_MAX
+#endif
 
 /* Link Layer header size of Adv PDU. Assumes pdu_adv is packed */
 #define PDU_AC_LL_HEADER_SIZE  (offsetof(struct pdu_adv, payload))
@@ -209,6 +217,31 @@ struct pdu_adv_connect_ind {
 	} __packed;
 } __packed;
 
+struct pdu_adv_ext_hdr {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+	uint8_t adv_addr:1;
+	uint8_t tgt_addr:1;
+	uint8_t rfu0:1;
+	uint8_t adi:1;
+	uint8_t aux_ptr:1;
+	uint8_t sync_info:1;
+	uint8_t tx_pwr:1;
+	uint8_t rfu1:1;
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+	uint8_t rfu1:1;
+	uint8_t tx_pwr:1;
+	uint8_t sync_info:1;
+	uint8_t aux_ptr:1;
+	uint8_t adi:1;
+	uint8_t rfu0:1;
+	uint8_t tgt_addr:1;
+	uint8_t adv_addr:1;
+#else
+#error "Unsupported endianness"
+#endif
+	uint8_t data[0];
+} __packed;
+
 struct pdu_adv_com_ext_adv {
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 	uint8_t ext_hdr_len:6;
@@ -219,7 +252,10 @@ struct pdu_adv_com_ext_adv {
 #else
 #error "Unsupported endianness"
 #endif
-	uint8_t ext_hdr_adi_adv_data[254];
+	union {
+		struct pdu_adv_ext_hdr ext_hdr;
+		uint8_t ext_hdr_adv_data[254];
+	};
 } __packed;
 
 enum pdu_adv_mode {
@@ -227,30 +263,6 @@ enum pdu_adv_mode {
 	EXT_ADV_MODE_CONN_NON_SCAN = 0x01,
 	EXT_ADV_MODE_NON_CONN_SCAN = 0x02,
 };
-
-struct pdu_adv_hdr {
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-	uint8_t adv_addr:1;
-	uint8_t tgt_addr:1;
-	uint8_t rfu0:1;
-	uint8_t adi:1;
-	uint8_t aux_ptr:1;
-	uint8_t sync_info:1;
-	uint8_t tx_pwr:1;
-	uint8_t rfu1:1;
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-	uint8_t rfu1:1;
-	uint8_t tx_pwr:1;
-	uint8_t sync_info:1;
-	uint8_t aux_ptr:1;
-	uint8_t adi:1;
-	uint8_t rfu0:1;
-	uint8_t tgt_addr:1;
-	uint8_t adv_addr:1;
-#else
-#error "Unsupported endianness"
-#endif
-} __packed;
 
 struct pdu_adv_adi {
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -685,6 +697,17 @@ struct pdu_big_ctrl {
 		struct pdu_big_ctrl_term_ind term_ind;
 	} __packed;
 } __packed;
+
+enum pdu_bis_llid {
+	/** Unframed complete or end fragment */
+	PDU_BIS_LLID_COMPLETE_END = 0x00,
+	/** Unframed start or continuation fragment */
+	PDU_BIS_LLID_START_CONTINUE = 0x01,
+	/** Framed; one or more segments of a SDU */
+	PDU_BIS_LLID_FRAMED = 0x02,
+	/** BIG Control PDU */
+	PDU_BIS_LLID_CTRL = 0x03,
+};
 
 struct pdu_bis {
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__

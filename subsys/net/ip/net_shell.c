@@ -323,30 +323,33 @@ static void iface_cb(struct net_if *iface, void *user_data)
 	PR("MTU       : %d\n", net_if_get_mtu(iface));
 
 #if defined(CONFIG_NET_L2_ETHERNET_MGMT)
-	count = 0;
-	ret = net_mgmt(NET_REQUEST_ETHERNET_GET_PRIORITY_QUEUES_NUM,
-		       iface,
-		       &params, sizeof(struct ethernet_req_params));
+	if (net_if_l2(iface) == &NET_L2_GET_NAME(ETHERNET)) {
+		count = 0;
+		ret = net_mgmt(NET_REQUEST_ETHERNET_GET_PRIORITY_QUEUES_NUM,
+				iface, &params,
+				sizeof(struct ethernet_req_params));
 
-	if (!ret && params.priority_queues_num) {
-		count = params.priority_queues_num;
-		PR("Priority queues:\n");
-		for (i = 0; i < count; ++i) {
-			params.qav_param.queue_id = i;
-			params.qav_param.type = ETHERNET_QAV_PARAM_TYPE_STATUS;
-			ret = net_mgmt(NET_REQUEST_ETHERNET_GET_QAV_PARAM,
-				       iface,
-				       &params,
-				       sizeof(struct ethernet_req_params));
+		if (!ret && params.priority_queues_num) {
+			count = params.priority_queues_num;
+			PR("Priority queues:\n");
+			for (i = 0; i < count; ++i) {
+				params.qav_param.queue_id = i;
+				params.qav_param.type =
+					ETHERNET_QAV_PARAM_TYPE_STATUS;
+				ret = net_mgmt(
+					NET_REQUEST_ETHERNET_GET_QAV_PARAM,
+					iface, &params,
+					sizeof(struct ethernet_req_params));
 
-			PR("\t%d: Qav ", i);
-			if (ret) {
-				PR("not supported\n");
-			} else {
-				PR("%s\n",
-				   params.qav_param.enabled ?
-				       "enabled" :
-				       "disabled");
+				PR("\t%d: Qav ", i);
+				if (ret) {
+					PR("not supported\n");
+				} else {
+					PR("%s\n",
+						params.qav_param.enabled ?
+						"enabled" :
+						"disabled");
+				}
 			}
 		}
 	}
@@ -1110,24 +1113,25 @@ static void net_shell_print_statistics(struct net_if *iface, void *user_data)
 #endif
 
 #if defined(CONFIG_NET_STATISTICS_TCP) && defined(CONFIG_NET_NATIVE_TCP)
-	PR("TCP bytes recv %u\tsent\t%d\n",
+	PR("TCP bytes recv %u\tsent\t%d\tresent\t%d\n",
 	   GET_STAT(iface, tcp.bytes.received),
-	   GET_STAT(iface, tcp.bytes.sent));
+	   GET_STAT(iface, tcp.bytes.sent),
+	   GET_STAT(iface, tcp.resent));
 	PR("TCP seg recv   %d\tsent\t%d\tdrop\t%d\n",
 	   GET_STAT(iface, tcp.recv),
 	   GET_STAT(iface, tcp.sent),
-	   GET_STAT(iface, tcp.drop));
+	   GET_STAT(iface, tcp.seg_drop));
 	PR("TCP seg resent %d\tchkerr\t%d\tackerr\t%d\n",
-	   GET_STAT(iface, tcp.resent),
+	   GET_STAT(iface, tcp.rexmit),
 	   GET_STAT(iface, tcp.chkerr),
 	   GET_STAT(iface, tcp.ackerr));
-	PR("TCP seg rsterr %d\trst\t%d\tre-xmit\t%d\n",
+	PR("TCP seg rsterr %d\trst\t%d\n",
 	   GET_STAT(iface, tcp.rsterr),
-	   GET_STAT(iface, tcp.rst),
-	   GET_STAT(iface, tcp.rexmit));
+	   GET_STAT(iface, tcp.rst));
 	PR("TCP conn drop  %d\tconnrst\t%d\n",
 	   GET_STAT(iface, tcp.conndrop),
 	   GET_STAT(iface, tcp.connrst));
+	PR("TCP pkt drop   %d\n", GET_STAT(iface, tcp.drop));
 #endif
 
 #if defined(CONFIG_NET_CONTEXT_TIMESTAMP) && defined(CONFIG_NET_NATIVE)
@@ -1315,6 +1319,14 @@ static void conn_handler_cb(struct net_conn *conn, void *user_data)
 }
 #endif /* CONFIG_NET_CONN_LOG_LEVEL >= LOG_LEVEL_DBG */
 
+#if CONFIG_NET_TCP_LOG_LEVEL >= LOG_LEVEL_DBG
+struct tcp2_detail_info {
+	int printed_send_queue_header;
+	int printed_details;
+	int count;
+};
+#endif
+
 #if defined(CONFIG_NET_TCP1) && \
 	(defined(CONFIG_NET_OFFLOAD) || defined(CONFIG_NET_NATIVE))
 static void tcp_cb(struct net_tcp *tcp, void *user_data)
@@ -1388,7 +1400,98 @@ static void tcp_sent_list_cb(struct net_tcp *tcp, void *user_data)
 	*printed = true;
 }
 #endif /* CONFIG_NET_TCP_LOG_LEVEL >= LOG_LEVEL_DBG */
-#endif
+#endif /* TCP1 */
+
+#if defined(CONFIG_NET_TCP2) && \
+	(defined(CONFIG_NET_OFFLOAD) || defined(CONFIG_NET_NATIVE))
+static void tcp_cb(struct tcp *conn, void *user_data)
+{
+	struct net_shell_user_data *data = user_data;
+	const struct shell *shell = data->shell;
+	int *count = data->user_data;
+	uint16_t recv_mss = net_tcp_get_recv_mss(conn);
+
+	PR("%p %p   %5u    %5u %10u %10u %5u   %s\n",
+	   conn, conn->context,
+	   ntohs(net_sin6_ptr(&conn->context->local)->sin6_port),
+	   ntohs(net_sin6(&conn->context->remote)->sin6_port),
+	   conn->seq, conn->ack, recv_mss,
+	   net_tcp_state_str(net_tcp_get_state(conn)));
+
+	(*count)++;
+}
+
+#if CONFIG_NET_TCP_LOG_LEVEL >= LOG_LEVEL_DBG
+static void tcp_sent_list_cb(struct tcp *conn, void *user_data)
+{
+	struct net_shell_user_data *data = user_data;
+	const struct shell *shell = data->shell;
+	struct tcp2_detail_info *details = data->user_data;
+	struct net_pkt *pkt;
+	struct net_pkt *tmp;
+
+	if (conn->state != TCP_LISTEN) {
+		if (!details->printed_details) {
+			PR("\nTCP        Ref  Recv_win Send_win Pending "
+			   "Unacked Flags Queue\n");
+			details->printed_details = true;
+		}
+
+		PR("%p   %d    %u\t %u\t  %zd\t  %d\t  %d/%d/%d %s\n",
+		   conn, atomic_get(&conn->ref_count), conn->recv_win,
+		   conn->send_win, conn->send_data_total, conn->unacked_len,
+		   conn->in_retransmission, conn->in_connect, conn->in_close,
+		   sys_slist_is_empty(&conn->send_queue) ? "empty" : "data");
+
+		details->count++;
+	}
+
+	if (sys_slist_is_empty(&conn->send_queue)) {
+		return;
+	}
+
+	if (!details->printed_send_queue_header) {
+		PR("\nTCP packets waiting ACK:\n");
+		PR("TCP             net_pkt[ref/totlen]->net_buf[ref/len]..."
+		   "\n");
+	}
+
+	PR("%p      ", conn);
+
+	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&conn->send_queue, pkt, tmp,
+					  sent_list) {
+		struct net_buf *frag = pkt->frags;
+
+		if (!details->printed_send_queue_header) {
+			PR("%p[%d/%zd]", pkt, atomic_get(&pkt->atomic_ref),
+			       net_pkt_get_len(pkt));
+			details->printed_send_queue_header = true;
+		} else {
+			PR("                %p[%d/%zd]",
+			   pkt, atomic_get(&pkt->atomic_ref),
+			   net_pkt_get_len(pkt));
+		}
+
+		if (frag) {
+			PR("->");
+		}
+
+		while (frag) {
+			PR("%p[%d/%d]", frag, frag->ref, frag->len);
+
+			frag = frag->frags;
+			if (frag) {
+				PR("->");
+			}
+		}
+
+		PR("\n");
+	}
+
+	details->printed_send_queue_header = true;
+}
+#endif /* CONFIG_NET_TCP_LOG_LEVEL >= LOG_LEVEL_DBG */
+#endif /* TCP2 */
 
 #if defined(CONFIG_NET_IPV6_FRAGMENT)
 static void ipv6_frag_cb(struct net_ipv6_reassembly *reass,
@@ -1626,7 +1729,7 @@ static int cmd_net_conn(const struct shell *shell, size_t argc, char *argv[])
 	}
 #endif
 
-#if defined(CONFIG_NET_TCP1)
+#if defined(CONFIG_NET_TCP)
 	PR("\nTCP        Context   Src port Dst port   "
 	   "Send-Seq   Send-Ack  MSS    State\n");
 
@@ -1639,8 +1742,22 @@ static int cmd_net_conn(const struct shell *shell, size_t argc, char *argv[])
 	} else {
 #if CONFIG_NET_TCP_LOG_LEVEL >= LOG_LEVEL_DBG
 		/* Print information about pending packets */
+		struct tcp2_detail_info details;
+
 		count = 0;
+
+		if (IS_ENABLED(CONFIG_NET_TCP2)) {
+			memset(&details, 0, sizeof(details));
+			user_data.user_data = &details;
+		}
+
 		net_tcp_foreach(tcp_sent_list_cb, &user_data);
+
+		if (IS_ENABLED(CONFIG_NET_TCP2)) {
+			if (details.count == 0) {
+				PR("No active connections.\n");
+			}
+		}
 #endif /* CONFIG_NET_TCP_LOG_LEVEL >= LOG_LEVEL_DBG */
 	}
 
@@ -4087,6 +4204,11 @@ static int cmd_net_stats_iface(const struct shell *shell, size_t argc,
 
 #if defined(CONFIG_NET_STATISTICS)
 #if defined(CONFIG_NET_STATISTICS_PER_INTERFACE)
+	if (argv[1] == NULL) {
+		PR_WARNING("Network interface index missing!\n");
+		return -ENOEXEC;
+	}
+
 	idx = strtol(argv[1], &endptr, 10);
 	if (*endptr != '\0') {
 		PR_WARNING("Invalid index %s\n", argv[1]);

@@ -44,6 +44,7 @@
 #include "ull_filter.h"
 
 #include "ull_internal.h"
+#include "ull_iso_internal.h"
 #include "ull_adv_internal.h"
 #include "ull_scan_internal.h"
 #include "ull_sync_internal.h"
@@ -58,6 +59,14 @@
 #include "common/log.h"
 #include "hal/debug.h"
 
+#if !defined(TICKER_USER_ULL_HIGH_VENDOR_OPS)
+#define TICKER_USER_ULL_HIGH_VENDOR_OPS 0
+#endif /* TICKER_USER_ULL_HIGH_VENDOR_OPS */
+
+#if !defined(TICKER_USER_THREAD_VENDOR_OPS)
+#define TICKER_USER_THREAD_VENDOR_OPS 0
+#endif /* TICKER_USER_THREAD_VENDOR_OPS */
+
 /* Define ticker nodes and user operations */
 #if defined(CONFIG_BT_CTLR_LOW_LAT) && \
 	(CONFIG_BT_CTLR_LLL_PRIO == CONFIG_BT_CTLR_ULL_LOW_PRIO)
@@ -66,13 +75,9 @@
 #define TICKER_USER_LLL_OPS      (2 + 1)
 #endif /* CONFIG_BT_CTLR_LOW_LAT */
 
-#if !defined(TICKER_USER_ULL_HIGH_VENDOR_OPS)
-#define TICKER_USER_ULL_HIGH_VENDOR_OPS 0
-#endif /* TICKER_USER_ULL_HIGH_VENDOR_OPS */
-
 #define TICKER_USER_ULL_HIGH_OPS (3 + TICKER_USER_ULL_HIGH_VENDOR_OPS + 1)
 #define TICKER_USER_ULL_LOW_OPS  (1 + 1)
-#define TICKER_USER_THREAD_OPS   (1 + 1)
+#define TICKER_USER_THREAD_OPS   (1 + TICKER_USER_THREAD_VENDOR_OPS + 1)
 
 #if defined(CONFIG_BT_BROADCASTER)
 #define BT_ADV_TICKER_NODES ((TICKER_ID_ADV_LAST) - (TICKER_ID_ADV_STOP) + 1)
@@ -399,6 +404,25 @@ int ll_init(struct k_sem *sem_rx)
 	}
 #endif /* CONFIG_BT_CONN */
 
+#if defined(CONFIG_BT_CTLR_ADV_ISO) || \
+	defined(CONFIG_BT_CTLR_SYNC_ISO) || \
+	defined(CONFIG_BT_CTLR_PERIPHERAL_ISO) || \
+	defined(CONFIG_BT_CTLR_CENTRAL_ISO)
+	err = ull_iso_init();
+	if (err) {
+		return err;
+	}
+#endif /* CONFIG_BT_CTLR_ADV_ISO || CONFIG_BT_CTLR_SYNC_ISO ||
+	* CONFIG_BT_CTLR_PERIPHERAL_ISO || CONFIG_BT_CTLR_CENTRAL_ISO
+	*/
+
+#if defined(CONFIG_BT_CTLR_ADV_ISO)
+	err = ull_adv_iso_init();
+	if (err) {
+		return err;
+	}
+#endif /* CONFIG_BT_CONN */
+
 #if defined(CONFIG_BT_CTLR_USER_EXT)
 	err = ull_user_init();
 	if (err) {
@@ -418,6 +442,16 @@ void ll_reset(void)
 {
 	int err;
 
+	/* Note: The sequence of reset control flow is as follows:
+	 * - Reset ULL context, i.e. stop ULL scheduling, abort LLL events etc.
+	 * - Reset LLL context, i.e. post LLL event abort, let LLL cleanup its
+	 *   variables, if any.
+	 * - Reset ULL static variables (which otherwise was mem-zeroed in cases
+	 *   if power-on reset wherein architecture startup mem-zeroes .bss
+	 *   sections.
+	 * - Initialize ULL context variable, similar to on-power-up.
+	 */
+
 #if defined(CONFIG_BT_BROADCASTER)
 	/* Reset adv state */
 	err = ull_adv_reset();
@@ -433,6 +467,22 @@ void ll_reset(void)
 #if defined(CONFIG_BT_CTLR_SYNC_PERIODIC)
 	/* Reset periodic sync sets */
 	err = ull_sync_reset();
+	LL_ASSERT(!err);
+#endif /* CONFIG_BT_CTLR_SYNC_PERIODIC */
+
+#if defined(CONFIG_BT_CTLR_ADV_ISO) || \
+	defined(CONFIG_BT_CTLR_SYNC_ISO) || \
+	defined(CONFIG_BT_CTLR_PERIPHERAL_ISO) || \
+	defined(CONFIG_BT_CTLR_CENTRAL_ISO)
+	err = ull_iso_reset();
+	LL_ASSERT(!err);
+#endif /* CONFIG_BT_CTLR_ADV_ISO || CONFIG_BT_CTLR_SYNC_ISO ||
+	* CONFIG_BT_CTLR_PERIPHERAL_ISO || CONFIG_BT_CTLR_CENTRAL_ISO
+	*/
+
+#if defined(CONFIG_BT_CTLR_ADV_ISO)
+	/* Reset periodic sync sets */
+	err = ull_adv_iso_reset();
 	LL_ASSERT(!err);
 #endif /* CONFIG_BT_CTLR_SYNC_PERIODIC */
 
@@ -518,6 +568,12 @@ void ll_reset(void)
 		k_sem_take(&sem, K_FOREVER);
 #endif /* !CONFIG_BT_CTLR_ZLI */
 	}
+
+#if defined(CONFIG_BT_BROADCASTER)
+	/* Finalize after adv state LLL context reset */
+	err = ull_adv_reset_finalize();
+	LL_ASSERT(!err);
+#endif /* CONFIG_BT_BROADCASTER */
 
 	/* Common to init and reset */
 	err = init_reset();
@@ -614,6 +670,9 @@ void ll_rx_dequeue(void)
 	case NODE_RX_TYPE_EXT_1M_REPORT:
 	case NODE_RX_TYPE_EXT_2M_REPORT:
 	case NODE_RX_TYPE_EXT_CODED_REPORT:
+#if defined(CONFIG_BT_CTLR_SYNC_PERIODIC)
+	case NODE_RX_TYPE_SYNC_REPORT:
+#endif /* CONFIG_BT_CTLR_SYNC_PERIODIC */
 	{
 		struct node_rx_hdr *rx_curr;
 		struct pdu_adv *adv;
@@ -812,10 +871,10 @@ void ll_rx_dequeue(void)
 	case NODE_RX_TYPE_MESH_REPORT:
 #endif /* CONFIG_BT_HCI_MESH_EXT */
 
-#if defined(CONFIG_BT_CTLR_USER_EXT)
-	case NODE_RX_TYPE_USER_START ... NODE_RX_TYPE_USER_END:
+#if CONFIG_BT_CTLR_USER_EVT_RANGE > 0
+	case NODE_RX_TYPE_USER_START ... NODE_RX_TYPE_USER_END - 1:
 		__fallthrough;
-#endif /* CONFIG_BT_CTLR_USER_EXT */
+#endif /* CONFIG_BT_CTLR_USER_EVT_RANGE > 0 */
 
 	/* Ensure that at least one 'case' statement is present for this
 	 * code block.
@@ -947,6 +1006,9 @@ void ll_rx_mem_release(void **node_rx)
 		case NODE_RX_TYPE_EXT_1M_REPORT:
 		case NODE_RX_TYPE_EXT_2M_REPORT:
 		case NODE_RX_TYPE_EXT_CODED_REPORT:
+#if defined(CONFIG_BT_CTLR_SYNC_PERIODIC)
+		case NODE_RX_TYPE_SYNC_REPORT:
+#endif /* CONFIG_BT_CTLR_SYNC_PERIODIC */
 #endif /* CONFIG_BT_CTLR_ADV_EXT */
 #endif /* CONFIG_BT_OBSERVER */
 
@@ -990,9 +1052,9 @@ void ll_rx_mem_release(void **node_rx)
 		case NODE_RX_TYPE_MESH_REPORT:
 #endif /* CONFIG_BT_HCI_MESH_EXT */
 
-#if defined(CONFIG_BT_CTLR_USER_EXT)
-		case NODE_RX_TYPE_USER_START ... NODE_RX_TYPE_USER_END:
-#endif /* CONFIG_BT_CTLR_USER_EXT */
+#if CONFIG_BT_CTLR_USER_EVT_RANGE > 0
+		case NODE_RX_TYPE_USER_START ... NODE_RX_TYPE_USER_END - 1:
+#endif /* CONFIG_BT_CTLR_USER_EVT_RANGE > 0 */
 
 		/* Ensure that at least one 'case' statement is present for this
 		 * code block.
@@ -1208,6 +1270,54 @@ void *ull_disable_unmark(void *param)
 void *ull_disable_mark_get(void)
 {
 	return mark_get(mark_disable);
+}
+
+/**
+ * @brief Stops a specified ticker using the ull_disable_(un)mark functions.
+ *
+ * @param ticker_handle The handle of the ticker.
+ * @param param         The object to mark.
+ * @param lll_disable   Optional object when calling @ref ull_disable
+ *
+ * @return 0 if success, else ERRNO.
+ */
+int ull_ticker_stop_with_mark(uint8_t ticker_handle, void *param,
+			      void *lll_disable)
+{
+	uint32_t volatile ret_cb;
+	uint32_t ret;
+	void *mark;
+
+	mark = ull_disable_mark(param);
+	if (mark != param) {
+		return -ENOLCK;
+	}
+
+	ret_cb = TICKER_STATUS_BUSY;
+	ret = ticker_stop(TICKER_INSTANCE_ID_CTLR, TICKER_USER_ID_THREAD,
+			  ticker_handle, ull_ticker_status_give,
+			  (void *)&ret_cb);
+	ret = ull_ticker_status_take(ret, &ret_cb);
+	if (ret) {
+		mark = ull_disable_unmark(param);
+		if (mark != param) {
+			return -ENOLCK;
+		}
+
+		return -EALREADY;
+	}
+
+	ret = ull_disable(lll_disable);
+	if (ret) {
+		return -EBUSY;
+	}
+
+	mark = ull_disable_unmark(param);
+	if (mark != param) {
+		return -ENOLCK;
+	}
+
+	return 0;
 }
 
 #if defined(CONFIG_BT_CONN)
@@ -1793,11 +1903,13 @@ static inline int rx_demux_rx(memq_link_t *link, struct node_rx_hdr *rx)
 #if defined(CONFIG_BT_OBSERVER)
 #if defined(CONFIG_BT_CTLR_ADV_EXT)
 	case NODE_RX_TYPE_EXT_1M_REPORT:
-	case NODE_RX_TYPE_EXT_2M_REPORT:
 	case NODE_RX_TYPE_EXT_CODED_REPORT:
+	case NODE_RX_TYPE_EXT_AUX_REPORT:
+#if defined(CONFIG_BT_CTLR_SYNC_PERIODIC)
+	case NODE_RX_TYPE_SYNC_REPORT:
+#endif /* CONFIG_BT_CTLR_SYNC_PERIODIC */
 	{
 		struct pdu_adv *adv;
-		uint8_t phy = 0U;
 
 		memq_dequeue(memq_ull_rx.tail, &memq_ull_rx.head, NULL);
 
@@ -1808,22 +1920,7 @@ static inline int rx_demux_rx(memq_link_t *link, struct node_rx_hdr *rx)
 			break;
 		}
 
-		switch (rx->type) {
-		case NODE_RX_TYPE_EXT_1M_REPORT:
-			phy = BIT(0);
-			break;
-		case NODE_RX_TYPE_EXT_2M_REPORT:
-			phy = BIT(1);
-			break;
-		case NODE_RX_TYPE_EXT_CODED_REPORT:
-			phy = BIT(2);
-			break;
-		default:
-			LL_ASSERT(0);
-			break;
-		}
-
-		ull_scan_aux_setup(link, rx, phy);
+		ull_scan_aux_setup(link, rx);
 	}
 	break;
 #endif /* CONFIG_BT_CTLR_ADV_EXT */

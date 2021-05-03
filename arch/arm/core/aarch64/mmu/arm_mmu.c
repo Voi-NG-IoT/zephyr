@@ -14,11 +14,11 @@
 #include <sys/util.h>
 #include "arm_mmu.h"
 
-static uint64_t base_xlat_table[NUM_BASE_LEVEL_ENTRIES]
-		__aligned(NUM_BASE_LEVEL_ENTRIES * sizeof(uint64_t));
+static uint64_t base_xlat_table[BASE_XLAT_NUM_ENTRIES]
+		__aligned(BASE_XLAT_NUM_ENTRIES * sizeof(uint64_t));
 
-static uint64_t xlat_tables[CONFIG_MAX_XLAT_TABLES][XLAT_TABLE_ENTRIES]
-		__aligned(XLAT_TABLE_ENTRIES * sizeof(uint64_t));
+static uint64_t xlat_tables[CONFIG_MAX_XLAT_TABLES][Ln_XLAT_NUM_ENTRIES]
+		__aligned(Ln_XLAT_NUM_ENTRIES * sizeof(uint64_t));
 
 /* Translation table control register settings */
 static uint64_t get_tcr(int el)
@@ -56,14 +56,14 @@ static int pte_desc_type(uint64_t *pte)
 
 static uint64_t *calculate_pte_index(uint64_t addr, int level)
 {
-	int base_level = XLAT_TABLE_BASE_LEVEL;
+	int base_level = BASE_XLAT_LEVEL;
 	uint64_t *pte;
 	uint64_t idx;
 	unsigned int i;
 
 	/* Walk through all translation tables to find pte index */
 	pte = (uint64_t *)base_xlat_table;
-	for (i = base_level; i <= XLAT_TABLE_LEVEL_MAX; i++) {
+	for (i = base_level; i < XLAT_LEVEL_MAX; i++) {
 		idx = XLAT_TABLE_VA_IDX(addr, i);
 		pte += idx;
 
@@ -196,7 +196,7 @@ static void split_pte_block_desc(uint64_t *pte, int level)
 
 	new_table = new_prealloc_table();
 
-	for (i = 0; i < XLAT_TABLE_ENTRIES; i++) {
+	for (i = 0; i < Ln_XLAT_NUM_ENTRIES; i++) {
 		new_table[i] = old_block_desc | (i << levelshift);
 
 		if ((level + 1) == 3)
@@ -217,7 +217,7 @@ static void init_xlat_tables(const struct arm_mmu_region *region)
 	uint64_t attrs = region->attrs;
 	uint64_t level_size;
 	uint64_t *new_table;
-	unsigned int level = XLAT_TABLE_BASE_LEVEL;
+	unsigned int level = BASE_XLAT_LEVEL;
 
 	MMU_DEBUG("mmap: virt %llx phys %llx size %llx\n", virt, phys, size);
 	/* check minimum alignment requirement for given mmap region */
@@ -226,7 +226,7 @@ static void init_xlat_tables(const struct arm_mmu_region *region)
 		 "address/size are not page aligned\n");
 
 	while (size) {
-		__ASSERT(level <= XLAT_TABLE_LEVEL_MAX,
+		__ASSERT(level < XLAT_LEVEL_MAX,
 			 "max translation table level exceeded\n");
 
 		/* Locate PTE for given virtual address and page table level */
@@ -244,7 +244,7 @@ static void init_xlat_tables(const struct arm_mmu_region *region)
 			phys += level_size;
 			size -= level_size;
 			/* Range is mapped, start again for next range */
-			level = XLAT_TABLE_BASE_LEVEL;
+			level = BASE_XLAT_LEVEL;
 		} else if (pte_desc_type(pte) == PTE_INVALID_DESC) {
 			/* Range doesn't fit, create subtable */
 			new_table = new_prealloc_table();
@@ -261,6 +261,21 @@ static void init_xlat_tables(const struct arm_mmu_region *region)
 /* zephyr execution regions with appropriate attributes */
 static const struct arm_mmu_region mmu_zephyr_regions[] = {
 
+	/* Mark the whole SRAM as read-write */
+	MMU_REGION_FLAT_ENTRY("SRAM",
+			      (uintptr_t)CONFIG_SRAM_BASE_ADDRESS,
+			      (uintptr_t)KB(CONFIG_SRAM_SIZE),
+			      MT_NORMAL | MT_P_RW_U_NA | MT_SECURE),
+
+	/* Mark rest of the zephyr execution regions (data, bss, noinit, etc.)
+	 * cacheable, read-write
+	 * Note: read-write region is marked execute-ever internally
+	 */
+	MMU_REGION_FLAT_ENTRY("zephyr_data",
+			      (uintptr_t)__kernel_ram_start,
+			      (uintptr_t)__kernel_ram_size,
+			      MT_NORMAL | MT_P_RW_U_NA | MT_SECURE),
+
 	/* Mark text segment cacheable,read only and executable */
 	MMU_REGION_FLAT_ENTRY("zephyr_code",
 			      (uintptr_t)_image_text_start,
@@ -272,15 +287,6 @@ static const struct arm_mmu_region mmu_zephyr_regions[] = {
 			      (uintptr_t)_image_rodata_start,
 			      (uintptr_t)_image_rodata_size,
 			      MT_NORMAL | MT_P_RO_U_NA | MT_SECURE),
-
-	/* Mark rest of the zephyr execution regions (data, bss, noinit, etc.)
-	 * cacheable, read-write
-	 * Note: read-write region is marked execute-ever internally
-	 */
-	MMU_REGION_FLAT_ENTRY("zephyr_data",
-			      (uintptr_t)__kernel_ram_start,
-			      (uintptr_t)__kernel_ram_size,
-			      MT_NORMAL | MT_P_RW_U_NA | MT_SECURE),
 };
 
 static void setup_page_tables(void)
@@ -374,8 +380,8 @@ static int arm_mmu_init(const struct device *arg)
 	__ASSERT((val & SCTLR_M) == 0, "MMU is already enabled\n");
 
 	MMU_DEBUG("xlat tables:\n");
-	MMU_DEBUG("base table(L%d): %p, %d entries\n", XLAT_TABLE_BASE_LEVEL,
-			(uint64_t *)base_xlat_table, NUM_BASE_LEVEL_ENTRIES);
+	MMU_DEBUG("base table(L%d): %p, %d entries\n", BASE_XLAT_LEVEL,
+			(uint64_t *)base_xlat_table, BASE_XLAT_NUM_ENTRIES);
 	for (idx = 0; idx < CONFIG_MAX_XLAT_TABLES; idx++)
 		MMU_DEBUG("%d: %p\n", idx, (uint64_t *)(xlat_tables + idx));
 

@@ -144,8 +144,8 @@ static inline uint32_t arch_k_cycle_get_32(void);
  * @brief Power save idle routine
  *
  * This function will be called by the kernel idle loop or possibly within
- * an implementation of z_sys_power_save_idle in the kernel when the
- * '_sys_power_save_flag' variable is non-zero.
+ * an implementation of z_pm_save_idle in the kernel when the
+ * '_pm_save_flag' variable is non-zero.
  *
  * Architectures that do not implement power management instructions may
  * immediately return, otherwise a power-saving instruction should be
@@ -844,6 +844,144 @@ size_t arch_cache_line_size_get(void);
 #endif
 #endif
 /** @} */
+
+#ifdef CONFIG_TIMING_FUNCTIONS
+#include <timing/types.h>
+
+/**
+ * @ingroup arch-interface timing_api
+ */
+
+/**
+ * @brief Initialize the timing subsystem.
+ *
+ * Perform the necessary steps to initialize the timing subsystem.
+ *
+ * @see timing_init()
+ */
+void arch_timing_init(void);
+
+/**
+ * @brief Signal the start of the timing information gathering.
+ *
+ * Signal to the timing subsystem that timing information
+ * will be gathered from this point forward.
+ *
+ * @see timing_start()
+ */
+void arch_timing_start(void);
+
+/**
+ * @brief Signal the end of the timing information gathering.
+ *
+ * Signal to the timing subsystem that timing information
+ * is no longer being gathered from this point forward.
+ *
+ * @see timing_stop()
+ */
+void arch_timing_stop(void);
+
+/**
+ * @brief Return timing counter.
+ *
+ * @return Timing counter.
+ *
+ * @see timing_counter_get()
+ */
+timing_t arch_timing_counter_get(void);
+
+/**
+ * @brief Get number of cycles between @p start and @p end.
+ *
+ * For some architectures or SoCs, the raw numbers from counter
+ * need to be scaled to obtain actual number of cycles.
+ *
+ * @param start Pointer to counter at start of a measured execution.
+ * @param end Pointer to counter at stop of a measured execution.
+ * @return Number of cycles between start and end.
+ *
+ * @see timing_cycles_get()
+ */
+uint64_t arch_timing_cycles_get(volatile timing_t *const start,
+				volatile timing_t *const end);
+
+/**
+ * @brief Get frequency of counter used (in Hz).
+ *
+ * @return Frequency of counter used for timing in Hz.
+ *
+ * @see timing_freq_get()
+ */
+uint64_t arch_timing_freq_get(void);
+
+/**
+ * @brief Convert number of @p cycles into nanoseconds.
+ *
+ * @param cycles Number of cycles
+ * @return Converted time value
+ *
+ * @see timing_cycles_to_ns()
+ */
+uint64_t arch_timing_cycles_to_ns(uint64_t cycles);
+
+/**
+ * @brief Convert number of @p cycles into nanoseconds with averaging.
+ *
+ * @param cycles Number of cycles
+ * @param count Times of accumulated cycles to average over
+ * @return Converted time value
+ *
+ * @see timing_cycles_to_ns_avg()
+ */
+uint64_t arch_timing_cycles_to_ns_avg(uint64_t cycles, uint32_t count);
+
+/**
+ * @brief Get frequency of counter used (in MHz).
+ *
+ * @return Frequency of counter used for timing in MHz.
+ *
+ * @see timing_freq_get_mhz()
+ */
+uint32_t arch_timing_freq_get_mhz(void);
+
+/* @} */
+
+#endif /* CONFIG_TIMING_FUNCTIONS */
+
+#ifdef CONFIG_PCIE_MSI_MULTI_VECTOR
+
+struct msi_vector;
+typedef struct msi_vector msi_vector_t;
+
+/**
+ * @brief Allocate vector(s) for the endpoint MSI message(s).
+ *
+ * @param priority the MSI vectors base interrupt priority
+ * @param vectors an array to fill with allocated MSI vectors
+ * @param n_vector the size of MSI vectors array
+ *
+ * @return The number of allocated MSI vectors
+ */
+uint8_t arch_pcie_msi_vectors_allocate(unsigned int priority,
+				       msi_vector_t *vectors,
+				       uint8_t n_vector);
+
+/**
+ * @brief Connect an MSI vector to the given routine
+ *
+ * @param vector The MSI vector to connect to
+ * @param routine Interrupt service routine
+ * @param parameter ISR parameter
+ * @param flags Arch-specific IRQ configuration flag
+ *
+ * @return True on success, false otherwise
+ */
+bool arch_pcie_msi_vector_connect(msi_vector_t *vector,
+				  void (*routine)(const void *parameter),
+				  const void *parameter,
+				  uint32_t flags);
+
+#endif /* CONFIG_PCIE_MSI_MULTI_VECTOR */
 
 #ifdef __cplusplus
 }

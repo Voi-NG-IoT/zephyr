@@ -37,6 +37,7 @@
 #include "beacon.h"
 #include "settings.h"
 #include "prov.h"
+#include "cfg.h"
 
 /* Minimum valid Mesh Network PDU length. The Network headers
  * themselves take up 9 bytes. After that there is a minimum of 1 byte
@@ -456,10 +457,6 @@ int bt_mesh_net_send(struct bt_mesh_net_tx *tx, struct net_buf *buf,
 	BT_DBG("Payload len %u: %s", buf->len, bt_hex(buf->data, buf->len));
 	BT_DBG("Seq 0x%06x", bt_mesh.seq);
 
-	if (tx->ctx->send_ttl == BT_MESH_TTL_DEFAULT) {
-		tx->ctx->send_ttl = bt_mesh_default_ttl_get();
-	}
-
 	cred = net_tx_cred_get(tx);
 	err = net_header_encode(tx, cred->nid, &buf->b);
 	if (err) {
@@ -806,7 +803,8 @@ void bt_mesh_net_recv(struct net_buf_simple *data, int8_t rssi,
 
 static void ivu_refresh(struct k_work *work)
 {
-	bt_mesh.ivu_duration += BT_MESH_IVU_HOURS;
+	bt_mesh.ivu_duration = MIN(UINT8_MAX,
+	       bt_mesh.ivu_duration + BT_MESH_IVU_HOURS);
 
 	BT_DBG("%s for %u hour%s",
 	       atomic_test_bit(bt_mesh.flags, BT_MESH_IVU_IN_PROGRESS) ?

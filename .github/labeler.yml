@@ -100,6 +100,11 @@
   - "**/*bluetooth*"
 "area: Bluetooth Mesh":
   - "subsys/bluetooth/mesh/**/*"
+"area: Bluetooth Controller":
+  - "subsys/bluetooth/controller/**/*"
+"area: Bluetooth Host":
+  - "subsys/bluetooth/host/**/*"
+  - "subsys/bluetooth/services/**/*"
 "area: API":
   - "include/**/*"
 "area: Samples":
@@ -120,8 +125,8 @@
   - "Kconfig"
   - "Kconfig.zephyr"
 "area: Sanitycheck":
-  - "scripts/sanitycheck"
-  - "scripts/sanity_chk/**/*"
+  - "scripts/twister"
+  - "scripts/pylib/twister/**/*"
 "area: Modules":
   - "west.yml"
   - "modules/**/*"

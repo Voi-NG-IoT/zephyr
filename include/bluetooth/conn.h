@@ -197,9 +197,12 @@ struct bt_conn_le_data_len_param {
  *
  *  Increment the reference count of a connection object.
  *
+ *  @note Will return NULL if the reference count is zero.
+ *
  *  @param conn Connection object.
  *
- *  @return Connection object with incremented reference count.
+ *  @return Connection object with incremented reference count, or NULL if the
+ *          reference count is zero.
  */
 struct bt_conn *bt_conn_ref(struct bt_conn *conn);
 
@@ -367,6 +370,32 @@ struct bt_conn_remote_info {
 	};
 };
 
+enum bt_conn_le_tx_power_phy {
+	/** Convenience macro for when no PHY is set. */
+	BT_CONN_LE_TX_POWER_PHY_NONE,
+	/** LE 1M PHY */
+	BT_CONN_LE_TX_POWER_PHY_1M,
+	 /** LE 2M PHY */
+	BT_CONN_LE_TX_POWER_PHY_2M,
+	/** LE Coded PHY using S=8 coding. */
+	BT_CONN_LE_TX_POWER_PHY_CODED_S8,
+	/** LE Coded PHY using S=2 coding. */
+	BT_CONN_LE_TX_POWER_PHY_CODED_S2,
+};
+
+/** LE Transmit Power Level Structure */
+struct bt_conn_le_tx_power {
+
+	/** Input: 1M, 2M, Coded S2 or Coded S8 */
+	uint8_t phy;
+
+	/** Output: current transmit power level */
+	int8_t current_level;
+
+	/** Output: maximum transmit power level */
+	int8_t max_level;
+};
+
 /** @brief Get connection info
  *
  *  @param conn Connection object.
@@ -393,6 +422,17 @@ int bt_conn_get_info(const struct bt_conn *conn, struct bt_conn_info *info);
  */
 int bt_conn_get_remote_info(struct bt_conn *conn,
 			    struct bt_conn_remote_info *remote_info);
+
+/** @brief Get connection transmit power level.
+ *
+ *  @param conn           Connection object.
+ *  @param tx_power_level Transmit power level descriptor.
+ *
+ *  @return Zero on success or (negative) error code on failure.
+ *  @return -ENOBUFS HCI command buffer is not available.
+ */
+int bt_conn_le_get_tx_power_level(struct bt_conn *conn,
+				  struct bt_conn_le_tx_power *tx_power_level);
 
 /** @brief Update the connection parameters.
  *
@@ -696,14 +736,15 @@ typedef enum __packed {
 
 /** @brief Set security level for a connection.
  *
- *  This function enable security (encryption) for a connection. If device is
- *  already paired with sufficiently strong key encryption will be enabled. If
- *  link is already encrypted with sufficiently strong key this function does
- *  nothing.
+ *  This function enable security (encryption) for a connection. If the device
+ *  has bond information for the peer with sufficiently strong key encryption
+ *  will be enabled. If the connection is already encrypted with sufficiently
+ *  strong key this function does nothing.
  *
- *  If device is not paired pairing will be initiated. If device is paired and
- *  keys are too weak but input output capabilities allow for strong enough keys
- *  pairing will be initiated.
+ *  If the device has no bond information for the peer and is not already paired
+ *  then the pairing procedure will be initiated. If the device has bond
+ *  information or is already paired and the keys are too weak then the pairing
+ *  procedure will be initiated.
  *
  *  This function may return error if required level of security is not possible
  *  to achieve due to local or remote device limitation (e.g., input output
@@ -881,8 +922,15 @@ struct bt_conn_cb {
 #if defined(CONFIG_BT_SMP) || defined(CONFIG_BT_BREDR)
 	/** @brief The security level of a connection has changed.
 	 *
-	 *  This callback notifies the application that the security level
-	 *  of a connection has changed.
+	 *  This callback notifies the application that the security of a
+	 *  connection has changed.
+	 *
+	 *  The security level of the connection can either have been increased
+	 *  or remain unchanged. An increased security level means that the
+	 *  pairing procedure has been performed or the bond information from
+	 *  a previous connection has been applied. If the security level
+	 *  remains unchanged this means that the encryption key has been
+	 *  refreshed for the connection.
 	 *
 	 *  @param conn Connection object.
 	 *  @param level New security level of the connection.
@@ -1276,13 +1324,14 @@ struct bt_conn_auth_cb {
 	void (*pincode_entry)(struct bt_conn *conn, bool highsec);
 #endif
 
-	/** @brief notify that pairing process was complete.
+	/** @brief notify that pairing procedure was complete.
 	 *
-	 *  This callback notifies the application that the pairing process
+	 *  This callback notifies the application that the pairing procedure
 	 *  has been completed.
 	 *
 	 *  @param conn Connection object.
-	 *  @param bonded pairing is bonded or not.
+	 *  @param bonded Bond information has been distributed during the
+	 *                pairing procedure.
 	 */
 	void (*pairing_complete)(struct bt_conn *conn, bool bonded);
 

@@ -678,6 +678,14 @@ static void test_phandles(void)
 			     "TEST_GPIO_2"),
 		     "gpios[1].label");
 
+	/* DT_PROP_BY_PHANDLE_IDX_OR */
+	zassert_true(!strcmp(DT_PROP_BY_PHANDLE_IDX_OR(TEST_PH, phs_or, 0,
+						val, "zero"), "one"),
+		     "phs-or 0");
+	zassert_true(!strcmp(DT_PROP_BY_PHANDLE_IDX_OR(TEST_PH, phs_or, 1,
+						val, "zero"), "zero"),
+		     "phs-or 1");
+
 	/* phandle-array */
 	zassert_true(DT_NODE_HAS_PROP(TEST_PH, gpios), "gpios");
 	zassert_equal(ARRAY_SIZE(gps), 2, "gpios size");
@@ -856,6 +864,18 @@ static void test_phandles(void)
 #define DT_DRV_COMPAT vnd_phandle_holder
 static void test_gpio(void)
 {
+	/* DT_GPIO_CTLR_BY_IDX */
+	zassert_true(!strcmp(TO_STRING(DT_GPIO_CTLR_BY_IDX(TEST_PH, gpios, 0)),
+			     TO_STRING(DT_NODELABEL(test_gpio_1))),
+		     "gpio 0 ctlr idx");
+	zassert_true(!strcmp(TO_STRING(DT_GPIO_CTLR_BY_IDX(TEST_PH, gpios, 1)),
+			     TO_STRING(DT_NODELABEL(test_gpio_2))),
+		     "gpio 1 ctlr idx");
+
+	/* DT_GPIO_CTLR */
+	zassert_true(!strcmp(TO_STRING(DT_GPIO_CTLR(TEST_PH, gpios)),
+			     TO_STRING(DT_NODELABEL(test_gpio_1))),
+		     "gpio 0 ctlr");
 
 	/* DT_GPIO_LABEL_BY_IDX */
 	zassert_true(!strcmp(DT_GPIO_LABEL_BY_IDX(TEST_PH, gpios, 0),
@@ -1206,6 +1226,8 @@ static char *c[] = DT_PROP(TEST_ARRAYS, c);
 
 static void test_arrays(void)
 {
+	int ok;
+
 	zassert_equal(ARRAY_SIZE(a), 3, "a size");
 	zassert_equal(ARRAY_SIZE(b), 4, "b size");
 	zassert_equal(ARRAY_SIZE(c), 2, "c size");
@@ -1218,6 +1240,18 @@ static void test_arrays(void)
 	zassert_true(DT_PROP_HAS_IDX(TEST_ARRAYS, a, 1), "a idx 1");
 	zassert_true(DT_PROP_HAS_IDX(TEST_ARRAYS, a, 2), "a idx 2");
 	zassert_false(DT_PROP_HAS_IDX(TEST_ARRAYS, a, 3), "!a idx 3");
+
+	/*
+	 * Verify that DT_PROP_HAS_IDX can be used with COND_CODE_1()
+	 * and COND_CODE_0(), i.e. its expansion is a literal 1 or 0,
+	 * not an equivalent expression that evaluates to 1 or 0.
+	 */
+	ok = 0;
+	COND_CODE_1(DT_PROP_HAS_IDX(TEST_ARRAYS, a, 0), (ok = 1;), ());
+	zassert_equal(ok, 1, "a idx 0 as a literal 1");
+	ok = 0;
+	COND_CODE_0(DT_PROP_HAS_IDX(TEST_ARRAYS, a, 3), (ok = 1;), ());
+	zassert_equal(ok, 1, "a idx 3 as a literal 0");
 
 	zassert_equal(DT_PROP_BY_IDX(TEST_ARRAYS, a, 0), a[0], "a 0");
 	zassert_equal(DT_PROP_BY_IDX(TEST_ARRAYS, a, 1), a[1], "a 1");

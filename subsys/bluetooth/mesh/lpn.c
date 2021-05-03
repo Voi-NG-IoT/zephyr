@@ -23,6 +23,7 @@
 #include "mesh.h"
 #include "net.h"
 #include "transport.h"
+#include "heartbeat.h"
 #include "access.h"
 #include "beacon.h"
 #include "foundation.h"
@@ -51,11 +52,13 @@
 
 #define POLL_TIMEOUT_INIT         (CONFIG_BT_MESH_LPN_INIT_POLL_TIMEOUT * 100)
 
+#define POLL_TIMEOUT              (CONFIG_BT_MESH_LPN_POLL_TIMEOUT * 100)
+
 #define REQ_ATTEMPTS_MAX          6
 #define REQ_ATTEMPTS(lpn)         MIN(REQ_ATTEMPTS_MAX, \
-			  POLL_TIMEOUT_INIT / REQ_RETRY_DURATION(lpn))
+			  POLL_TIMEOUT / REQ_RETRY_DURATION(lpn))
 
-#define POLL_TIMEOUT_MAX(lpn)     (POLL_TIMEOUT_INIT - \
+#define POLL_TIMEOUT_MAX(lpn)     (POLL_TIMEOUT - \
 			  (REQ_ATTEMPTS(lpn) * REQ_RETRY_DURATION(lpn)))
 
 #define CLEAR_ATTEMPTS            3
@@ -197,7 +200,6 @@ static int send_friend_clear(void)
 
 static void clear_friendship(bool force, bool disable)
 {
-	struct bt_mesh_cfg_srv *cfg = bt_mesh_cfg_get();
 	struct bt_mesh_lpn *lpn = &bt_mesh.lpn;
 
 	BT_DBG("force %u disable %u", force, disable);
@@ -246,9 +248,7 @@ static void clear_friendship(bool force, bool disable)
 	 */
 	lpn->groups_changed = 1U;
 
-	if (cfg->hb_pub.feat & BT_MESH_FEAT_LOW_POWER) {
-		(void)bt_mesh_heartbeat_send(NULL, NULL);
-	}
+	bt_mesh_hb_feature_changed(BT_MESH_FEAT_LOW_POWER);
 
 	if (disable) {
 		lpn_set_state(BT_MESH_LPN_DISABLED);
@@ -936,7 +936,9 @@ int bt_mesh_lpn_friend_sub_cfm(struct bt_mesh_net_rx *rx,
 	}
 
 	if (!lpn->sent_req) {
-		k_delayed_work_submit(&lpn->timer, K_MSEC(poll_timeout(lpn)));
+		int32_t timeout = poll_timeout(lpn);
+
+		k_delayed_work_submit(&lpn->timer, K_MSEC(timeout));
 	}
 
 	return 0;
@@ -972,8 +974,6 @@ int bt_mesh_lpn_friend_update(struct bt_mesh_net_rx *rx,
 	}
 
 	if (!lpn->established) {
-		struct bt_mesh_cfg_srv *cfg = bt_mesh_cfg_get();
-
 		/* This is normally checked on the transport layer, however
 		 * in this state we're also still accepting master
 		 * credentials so we need to ensure the right ones (Friend
@@ -988,9 +988,7 @@ int bt_mesh_lpn_friend_update(struct bt_mesh_net_rx *rx,
 
 		BT_INFO("Friendship established with 0x%04x", lpn->frnd);
 
-		if (cfg->hb_pub.feat & BT_MESH_FEAT_LOW_POWER) {
-			(void)bt_mesh_heartbeat_send(NULL, NULL);
-		}
+		bt_mesh_hb_feature_changed(BT_MESH_FEAT_LOW_POWER);
 
 		Z_STRUCT_SECTION_FOREACH(bt_mesh_lpn_cb, cb) {
 			if (cb->established) {
@@ -1029,7 +1027,9 @@ int bt_mesh_lpn_friend_update(struct bt_mesh_net_rx *rx,
 	}
 
 	if (!lpn->sent_req) {
-		k_delayed_work_submit(&lpn->timer, K_MSEC(poll_timeout(lpn)));
+		int32_t timeout = poll_timeout(lpn);
+
+		k_delayed_work_submit(&lpn->timer, K_MSEC(timeout));
 	}
 
 	return 0;

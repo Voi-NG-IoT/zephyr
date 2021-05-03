@@ -9,6 +9,9 @@ We are pleased to announce the release of Zephyr RTOS version 2.5.0.
 
 Major enhancements with this release include:
 
+* Introduced support for the SPARC processor architecture and the LEON
+  processor implementation.
+
 The following sections provide detailed lists of changes by component.
 
 Security Vulnerability Related
@@ -36,6 +39,11 @@ API Changes
   ``flags`` parameter, which allows to configure current LwM2M client session,
   for instance enable bootstrap procedure in the curent session.
 
+* LwM2M execute now supports arguments. The execute callback
+  `lwm2m_engine_execute_cb_t` is extended with an ``args`` parameter which points
+  to the CoAP payload that comprises the arguments, and an ``args_len`` parameter
+  to indicate the length of the ``args`` data.
+
 * Changed vcnl4040 dts binding default for property 'proximity-trigger'.
   Changed the default to match the HW POR state for this property.
 
@@ -43,10 +51,16 @@ API Changes
   ``user_data`` as arguments instead of structure which contained list node,
   callback and user data.
 
+* The :c:func:`mqtt_keepalive_time_left` function now returns -1 if keep alive
+  messages are disabled by setting ``CONFIG_MQTT_KEEPALIVE`` to 0.
+
 Deprecated in this release
 ==========================
 
+* Nordic nRF5340 PDK board deprecated and planned to be removed in 2.6.0.
 * ARM Musca-A board and SoC support deprecated and planned to be removed in 2.6.0.
+
+* DEVICE_INIT was deprecated in favor of utilizing DEVICE_DEFINE directly.
 
 Removed APIs in this release
 ============================
@@ -76,6 +90,12 @@ Architectures
 
 * RISC-V
 
+* SPARC
+
+  * Added support for the SPARC architecture, compatible with the SPARC V8
+    specification and the SPARC ABI.
+  * FPU is supported in both shared and unshared FP register mode.
+
 * x86
 
 Boards & SoC Support
@@ -89,7 +109,17 @@ Boards & SoC Support
 
 * Added support for these ARM boards:
 
+* Added support for these SPARC boards:
+
+  * GR716-MINI LEON3FT microcontroller development board
+  * Generic LEON3 board configuration for GRLIB FPGA reference designs
+  * SPARC QEMU for emulating LEON3 processors and running kernel tests
+
 * Made these changes in other boards:
+
+  * nRF5340 DK: Selected TF-M as the default Secure Processing Element
+    (SPE) when building Zephyr for the non-secure domain.
+
 
 * Added support for these following shields:
 
@@ -172,6 +202,10 @@ Drivers and Sensors
 
 * USB
 
+  * Made USB DFU class compatible with the target configuration that does not
+    have a secondary image slot.
+  * Support to use USB DFU within MCUBoot with single application slot mode.
+
 * Video
 
 * Watchdog
@@ -186,7 +220,15 @@ Bluetooth
 
 * Host
 
+  * When privacy has been enabled in order to advertise towards a
+    privacy-enabled peer the BT_LE_ADV_OPT_DIR_ADDR_RPA option must now
+    be set, same as when privacy has been disabled.
+
 * Mesh
+
+  * The ``bt_mesh_cfg_srv`` structure has been deprecated in favor of a
+    standalone Heartbeat API and Kconfig entries for default state values.
+
 
 * BLE split software Controller
 
@@ -215,6 +257,8 @@ Libraries / Subsystems
 
   * MCUmgr
 
+    * Added support for flash devices that have non-0xff erase value.
+
   * updatehub
 
 * Settings
@@ -234,6 +278,9 @@ Libraries / Subsystems
 * Shell
 
 * Storage
+
+  * flash_map: Added API to get the value of an erased byte in the flash_area,
+    see ``flash_area_erased_val()``.
 
 * Tracing
 
@@ -261,13 +308,16 @@ MCUBoot
   * Fixed issue causing that interrupted swap-move operation might brick device
     if the primary image was padded.
   * Fixed issue causing that HW stack protection catches the chain-loaded
-    application during its early ini, by disableing HW stack protection
-    (temporary hack).
+    application during its early initialization.
   * Added reset of Cortex SPLIM registers before boot.
   * Fixesd build issue that occurs if CONF_FILE contains multiple file paths
     instead of single file path.
   * Added watchdog feed on nRF devices. See ``CONFIG_BOOT_WATCHDOG_FEED`` option.
   * Removed the flash_area_read_is_empty() port implementation function.
+  * Initialize the ARM core configuration only when selected by the user,
+    see ``CONFIG_MCUBOOT_CLEANUP_ARM_CORE``.
+  * Allow the final data chunk in the image to be unaligned in
+    the serial-recovery protocol.
 
 * imgtool
 
@@ -275,6 +325,12 @@ MCUBoot
   * Add possibility to set confirm flag for hex files as well.
   * Usage of --confirm implies --pad.
   * Fixed 'custom_tlvs' argument handling.
+
+
+Trusted-Firmware-M
+******************
+
+* Synchronized Trusted-Firmware-M module to the upstream v1.2.0 release.
 
 Documentation
 *************
