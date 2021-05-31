@@ -65,7 +65,8 @@
 #define IPSO_OBJECT_PUSH_BUTTON_ID          3347
 /* clang-format on */
 
-typedef void (*lwm2m_socket_fault_cb_t)(int error);
+struct lwm2m_ctx;
+typedef void (*lwm2m_socket_fault_cb_t)(struct lwm2m_ctx *ctx, int error);
 
 /**
  * @brief LwM2M context structure to maintain information for a single

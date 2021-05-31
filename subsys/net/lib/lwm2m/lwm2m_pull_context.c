@@ -21,8 +21,6 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include "lwm2m_pull_context.h"
 #include "lwm2m_engine.h"
 
-K_SEM_DEFINE(lwm2m_pull_sem, 1, 1);
-
 #define NETWORK_INIT_TIMEOUT        K_SECONDS(10)
 #define NETWORK_CONNECT_TIMEOUT     K_SECONDS(10)
 #define PACKET_TRANSFER_RETRY_MAX   3
@@ -34,21 +32,17 @@ K_SEM_DEFINE(lwm2m_pull_sem, 1, 1);
 static char proxy_uri[URI_LEN];
 #endif
 
-static struct firmware_pull_context *context = NULL;
-
 static void do_transmit_timeout_cb(struct lwm2m_message *msg);
 
 
 /**
  * Close all open connections and release the context semaphore
  */
-static void cleanup_context()
+static void cleanup_context(struct firmware_pull_context *context)
 {
 	lwm2m_engine_context_close(&context->firmware_ctx);
-	context = NULL;
-
-	k_sem_give(&lwm2m_pull_sem);
 }
+
 
 static int transfer_request(struct coap_block_context *ctx,
 			    uint8_t *token, uint8_t tkl,
@@ -62,6 +56,8 @@ static int transfer_request(struct coap_block_context *ctx,
 	uint16_t off, len;
 	char *next_slash;
 #endif
+	struct firmware_pull_context *context;
+	context = CONTAINER_OF(ctx, struct firmware_pull_context, block_ctx);
 
 	msg = lwm2m_get_message(&context->firmware_ctx);
 	if (!msg) {
@@ -200,6 +196,12 @@ do_firmware_transfer_reply_cb(const struct coap_packet *response,
 	uint8_t resp_code, *write_buf;
 	struct coap_block_context received_block_ctx;
 
+	struct firmware_pull_context *context;
+	struct lwm2m_message *msg;
+
+	msg = lwm2m_find_msg(NULL, reply);
+	context = CONTAINER_OF(msg->ctx, struct firmware_pull_context, block_ctx);
+
 	/* token is used to determine a valid ACK vs a separated response */
 	tkl = coap_header_get_token(check_response, token);
 
@@ -315,14 +317,14 @@ do_firmware_transfer_reply_cb(const struct coap_packet *response,
 	} else {
 		/* Download finished */
 		context->result_cb(context, 0);
-		cleanup_context();
+		cleanup_context(context);
 	}
 
 	return 0;
 
 error:
 	context->result_cb(context, ret);
-	cleanup_context();
+	cleanup_context(context);
 	return ret;
 }
 
@@ -330,6 +332,8 @@ static void do_transmit_timeout_cb(struct lwm2m_message *msg)
 {
 	int ret;
 
+	struct firmware_pull_context *context;
+	context = CONTAINER_OF(msg->ctx, struct firmware_pull_context, block_ctx);
 	if (context->retry < PACKET_TRANSFER_RETRY_MAX) {
 		/* retry block */
 		LOG_WRN("TIMEOUT - Sending a retry packet!");
@@ -341,7 +345,7 @@ static void do_transmit_timeout_cb(struct lwm2m_message *msg)
 			/* abort retries / transfer */
 			context->retry = PACKET_TRANSFER_RETRY_MAX;
 			context->result_cb(context, ret);
-			cleanup_context();
+			cleanup_context(context);
 			return;
 		}
 
@@ -350,26 +354,14 @@ static void do_transmit_timeout_cb(struct lwm2m_message *msg)
 		LOG_ERR("TIMEOUT - Too many retry packet attempts! "
 			"Aborting firmware download.");
 		context->result_cb(context, -ENOMSG);
-		cleanup_context();
+		cleanup_context(context);
 	}
 }
 
-static void firmware_transfer(struct k_work *work)
+static void firmware_transfer(struct firmware_pull_context *context)
 {
 	int ret;
 	char *server_addr;
-
-	struct k_delayed_work *delayed_work;
-
-	delayed_work = CONTAINER_OF(work, struct k_delayed_work, work);
-
-	ret = k_sem_take(&lwm2m_pull_sem, K_NO_WAIT);
-	if (ret) {
-		k_delayed_work_submit(delayed_work, K_SECONDS(5));
-		return;
-	}
-
-	context = CONTAINER_OF(delayed_work, struct firmware_pull_context, firmware_work);
 
 #if defined(CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_COAP_PROXY_SUPPORT)
 	server_addr = CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_COAP_PROXY_ADDR;
@@ -415,14 +407,17 @@ static void firmware_transfer(struct k_work *work)
 
 error:
 	context->result_cb(context, ret);
-	cleanup_context();
+	cleanup_context(context);
 }
 
-static void socket_fault_cb(int error)
+static void socket_fault_cb(struct lwm2m_ctx *fw_ctx, int error)
 {
 	int ret;
 
 	LOG_ERR("FW update socket error: %d", error);
+
+	struct firmware_pull_context *context;
+	context = CONTAINER_OF(fw_ctx, struct firmware_pull_context, firmware_ctx);
 
 	lwm2m_engine_context_close(&context->firmware_ctx);
 
@@ -448,7 +443,7 @@ error:
 	/* Abort retries. */
 	context->retry = PACKET_TRANSFER_RETRY_MAX;
 	context->result_cb(context, ret);
-	cleanup_context();
+	cleanup_context(context);
 }
 
 int lwm2m_pull_context_start_transfer(struct firmware_pull_context *ctx,
@@ -469,8 +464,7 @@ int lwm2m_pull_context_start_transfer(struct firmware_pull_context *ctx,
 	ctx->firmware_ctx.fault_cb = socket_fault_cb;
 	ctx->retry = 0;
 
-	k_delayed_work_init(&ctx->firmware_work, firmware_transfer);
-	k_delayed_work_submit(&ctx->firmware_work, K_NO_WAIT);
+	firmware_transfer(ctx);
 
 	return 0;
 }

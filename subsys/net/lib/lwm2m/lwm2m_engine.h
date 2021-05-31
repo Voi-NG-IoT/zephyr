@@ -74,6 +74,7 @@ uint8_t *lwm2m_get_message_buf(void);
 int lwm2m_put_message_buf(uint8_t *buf);
 
 /* LwM2M message functions */
+struct lwm2m_message *lwm2m_find_msg(struct coap_pending *pending, struct coap_reply *reply);
 struct lwm2m_message *lwm2m_get_message(struct lwm2m_ctx *client_ctx);
 void lwm2m_reset_message(struct lwm2m_message *msg, bool release);
 int lwm2m_init_message(struct lwm2m_message *msg);

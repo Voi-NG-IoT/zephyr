@@ -907,8 +907,8 @@ static int coap_options_to_path(struct coap_option *opt, int options_count,
 	return options_count == path->level ? 0 : -EINVAL;
 }
 
-static struct lwm2m_message *find_msg(struct coap_pending *pending,
-				      struct coap_reply *reply)
+struct lwm2m_message *lwm2m_find_msg(struct coap_pending *pending,
+				            struct coap_reply *reply)
 {
 	size_t i;
 
@@ -3906,7 +3906,7 @@ static void lwm2m_udp_receive(struct lwm2m_ctx *client_ctx,
 	pending = coap_pending_received(&response, client_ctx->pendings,
 					CONFIG_LWM2M_ENGINE_MAX_PENDING);
 	if (pending && coap_header_get_type(&response) == COAP_TYPE_ACK) {
-		msg = find_msg(pending, NULL);
+		msg = lwm2m_find_msg(pending, NULL);
 		if (msg == NULL) {
 			LOG_DBG("Orphaned pending %p.", pending);
 			return;
@@ -3937,7 +3937,7 @@ static void lwm2m_udp_receive(struct lwm2m_ctx *client_ctx,
 				       client_ctx->replies,
 				       CONFIG_LWM2M_ENGINE_MAX_REPLIES);
 	if (reply) {
-		msg = find_msg(NULL, reply);
+		msg = lwm2m_find_msg(NULL, reply);
 
 		if (coap_header_get_type(&response) == COAP_TYPE_CON) {
 			r = lwm2m_send_empty_ack(client_ctx,
@@ -4037,7 +4037,7 @@ static void retransmit_request(struct k_work *work)
 		goto next;
 	}
 
-	msg = find_msg(pending, NULL);
+	msg = lwm2m_find_msg(pending, NULL);
 	if (!msg) {
 		LOG_ERR("pending has no valid LwM2M message!");
 		coap_pending_clear(pending);
@@ -4445,7 +4445,7 @@ static void socket_receive_loop(void)
 					sock_fds[i].revents);
 				if (sock_ctx[i] != NULL &&
 				    sock_ctx[i]->fault_cb != NULL) {
-					sock_ctx[i]->fault_cb(EIO);
+					sock_ctx[i]->fault_cb(sock_ctx[i], EIO);
 				}
 				continue;
 			}
@@ -4465,7 +4465,7 @@ static void socket_receive_loop(void)
 			if (len < 0) {
 				LOG_ERR("Error reading response: %d", errno);
 				if (sock_ctx[i]->fault_cb != NULL) {
-					sock_ctx[i]->fault_cb(errno);
+					sock_ctx[i]->fault_cb(sock_ctx[i], errno);
 				}
 				continue;
 			}

@@ -15,7 +15,6 @@ struct firmware_pull_context {
 	uint8_t obj_inst_id;
 	char uri[LWM2M_PACKAGE_URI_LEN];
 	int retry;
-	struct k_delayed_work firmware_work;
 	struct lwm2m_ctx firmware_ctx;
 	struct coap_block_context block_ctx;
 
