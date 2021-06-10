@@ -305,11 +305,14 @@ static const struct setup_cmd setup_cmds[] = {
 	SETUP_CMD_NOHANDLE("ATH"),
 	/* extender errors in numeric form */
 	SETUP_CMD_NOHANDLE("AT+CMEE=1"),
+	/* get model info */
+	SETUP_CMD("AT+CGMM", "", on_cmd_atcmdinfo_model, 0U, ""),
+};
 
+static const struct setup_cmd setup_cmds2[] = {
 #if defined(CONFIG_MODEM_SHELL)
 	/* query modem info */
 	SETUP_CMD("AT+CGMI", "", on_cmd_atcmdinfo_manufacturer, 0U, ""),
-	SETUP_CMD("AT+CGMM", "", on_cmd_atcmdinfo_model, 0U, ""),
 	SETUP_CMD("AT+CGMR", "", on_cmd_atcmdinfo_revision, 0U, ""),
 # if defined(CONFIG_MODEM_SIM_NUMBERS)
 	SETUP_CMD("AT+CIMI", "", on_cmd_atcmdinfo_imsi, 0U, ""),
@@ -320,9 +323,6 @@ static const struct setup_cmd setup_cmds[] = {
 
 	/* disable unsolicited network registration codes */
 	SETUP_CMD_NOHANDLE("AT+CREG=0"),
-
-	/* create PDP context */
-	SETUP_CMD_NOHANDLE("AT+CGDCONT=1,\"IP\",\"" CONFIG_MODEM_GSM_APN "\""),
 };
 
 MODEM_CMD_DEFINE(on_cmd_atcmdinfo_attached)
@@ -414,6 +414,16 @@ static void set_ppp_carrier_on(struct gsm_modem *gsm)
 	}
 }
 
+/* Weakly linked NOP implementation that allows app to do modem-specific setup
+ * without maintaining Zephyr patches.
+ */
+void __weak gsm_ppp_application_setup(struct modem_context *context,
+				      struct k_sem *sem)
+{
+	ARG_UNUSED(context);
+	ARG_UNUSED(sem);
+}
+
 static void gsm_finalize_connection(struct gsm_modem *gsm)
 {
 	int ret;
@@ -463,6 +473,33 @@ static void gsm_finalize_connection(struct gsm_modem *gsm)
 		(void)k_work_reschedule(&gsm->gsm_configure_work, K_SECONDS(1));
 		return;
 	}
+
+	/* The setup_cmds array is split in two to allow application to insert
+	 * custom setup commands. The split is done just after acquiring the
+	 * model string, since this is potentially useful information for the
+	 * application.
+	 */
+	gsm_ppp_application_setup(&gsm->context, &gsm->sem_response);
+
+	ret = modem_cmd_handler_setup_cmds_nolock(&gsm->context.iface,
+						  &gsm->context.cmd_handler,
+						  setup_cmds2,
+						  ARRAY_SIZE(setup_cmds2),
+						  &gsm->sem_response,
+						  GSM_CMD_SETUP_TIMEOUT);
+	if (ret < 0) {
+		LOG_DBG("second modem setup returned %d, %s",
+			ret, "retrying...");
+		(void)k_work_reschedule(&gsm->gsm_configure_work, K_SECONDS(1));
+		return;
+	}
+
+	/* Finalize PDP context */
+	(void)modem_cmd_send_nolock(&gsm->context.iface,
+				    &gsm->context.cmd_handler,
+				    NULL, 0, "AT+CGDCONT=1,\"IP\",\""
+				    CONFIG_MODEM_GSM_APN "\"",
+				    &gsm->sem_response, GSM_CMD_SETUP_TIMEOUT);
 
 attaching:
 	/* Don't initialize PPP until we're attached to packet service */
