@@ -575,36 +575,6 @@ char *lwm2m_path_log_strdup(char *buf, struct lwm2m_obj_path *path)
 }
 #endif /* CONFIG_LOG */
 
-#if defined(CONFIG_LWM2M_CANCEL_OBSERVE_BY_PATH)
-static int engine_remove_observer_by_path(struct lwm2m_obj_path *path)
-{
-	char buf[LWM2M_MAX_PATH_STR_LEN];
-	struct observe_node *obs, *found_obj = NULL;
-	sys_snode_t *prev_node = NULL;
-
-	/* find the node index */
-	SYS_SLIST_FOR_EACH_CONTAINER(&engine_observer_list, obs, node) {
-		if (memcmp(path, &obs->path, sizeof(*path)) == 0) {
-			found_obj = obs;
-			break;
-		}
-
-		prev_node = &obs->node;
-	}
-
-	if (!found_obj) {
-		return -ENOENT;
-	}
-
-	LOG_INF("Removing observer for path %s",
-		lwm2m_path_log_strdup(buf, path));
-	sys_slist_remove(&engine_observer_list, prev_node, &found_obj->node);
-	(void)memset(found_obj, 0, sizeof(*found_obj));
-
-	return 0;
-}
-#endif /* CONFIG_LWM2M_CANCEL_OBSERVE_BY_PATH */
-
 static void engine_remove_observer_by_id(uint16_t obj_id, int32_t obj_inst_id)
 {
 	struct observe_node *obs, *tmp;
@@ -626,6 +596,14 @@ static void engine_remove_observer_by_id(uint16_t obj_id, int32_t obj_inst_id)
 		}
 	}
 }
+
+#if defined(CONFIG_LWM2M_CANCEL_OBSERVE_BY_PATH)
+static int engine_remove_observer_by_path(struct lwm2m_obj_path *path)
+{
+	engine_remove_observer_by_id(path->obj_id, path->obj_inst_id);
+	return 0;
+}
+#endif /* CONFIG_LWM2M_CANCEL_OBSERVE_BY_PATH */
 
 /* engine object */
 
