@@ -20,6 +20,18 @@
 #include "cmdline.h" /* native_posix command line options header */
 #include "soc.h"
 
+static volatile bool disable_tx_irq;
+
+#define RX_THREAD_STACK_SIZE 512
+K_THREAD_STACK_DEFINE(rx_thread_stack, RX_THREAD_STACK_SIZE);
+static k_tid_t rx_thread;
+
+#if defined(CONFIG_THREAD_MAX_NAME_LEN)
+#define THREAD_MAX_NAME_LEN CONFIG_THREAD_MAX_NAME_LEN
+#else
+#define THREAD_MAX_NAME_LEN 1
+#endif
+
 /*
  * UART driver for POSIX ARCH based boards.
  * It can support up to two UARTs.
@@ -45,6 +57,21 @@ static int np_uart_tty_poll_in(const struct device *dev,
 static void np_uart_poll_out(const struct device *dev,
 				      unsigned char out_char);
 
+#ifdef CONFIG_UART_0_INTERRUPT_DRIVEN
+static void np_uart_irq_tx_enable(const struct device *dev);
+static void np_uart_irq_tx_disable(const struct device *dev);
+static int np_uart_irq_tx_ready_complete(const struct device *dev);
+static void np_uart_irq_rx_enable(const struct device *dev);
+static void np_uart_irq_rx_disable(const struct device *dev);
+static int np_uart_irq_rx_ready(const struct device *dev);
+static int np_uart_irq_is_pending(const struct device *dev);
+static int np_uart_irq_update(const struct device *dev);
+static void np_uart_irq_callback_set(const struct device *dev,
+				     uart_irq_callback_user_data_t cb,
+				     void *cb_data);
+
+#endif /* CONFIG_UART_0_INTERRUPT_DRIVEN */
+
 static bool auto_attach;
 static const char default_cmd[] = CONFIG_NATIVE_UART_AUTOATTACH_DEFAULT_CMD;
 static char *auto_attach_cmd;
@@ -52,6 +79,11 @@ static char *auto_attach_cmd;
 struct native_uart_status {
 	int out_fd; /* File descriptor used for output */
 	int in_fd; /* File descriptor used for input */
+#if defined(CONFIG_UART_INTERRUPT_DRIVEN)
+	uart_irq_callback_user_data_t
+		irq_callback; /* Callback function pointer */
+	void *irq_cb_data; /* Callback function arg */
+#endif
 };
 
 static struct native_uart_status native_uart_status_0;
@@ -59,6 +91,20 @@ static struct native_uart_status native_uart_status_0;
 static struct uart_driver_api np_uart_driver_api_0 = {
 	.poll_out = np_uart_poll_out,
 	.poll_in = np_uart_tty_poll_in,
+#ifdef CONFIG_UART_0_INTERRUPT_DRIVEN
+	.fifo_fill = np_uart_fifo_fill,
+	.fifo_read = np_uart_fifo_read,
+	.irq_tx_enable = np_uart_irq_tx_enable,
+	.irq_tx_disable = np_uart_irq_tx_disable,
+	.irq_tx_ready = np_uart_irq_tx_ready_complete,
+	.irq_rx_enable = np_uart_irq_rx_enable,
+	.irq_rx_disable = np_uart_irq_rx_disable,
+	.irq_tx_complete = np_uart_irq_tx_ready_complete,
+	.irq_rx_ready = np_uart_irq_rx_ready,
+	.irq_is_pending = np_uart_irq_is_pending,
+	.irq_update = np_uart_irq_update,
+	.irq_callback_set = np_uart_irq_callback_set,
+#endif /* CONFIG_UART_0_INTERRUPT_DRIVEN */
 };
 
 #if defined(CONFIG_UART_NATIVE_POSIX_PORT_1_ENABLE)
@@ -226,6 +272,11 @@ static int np_uart_0_init(const struct device *dev)
 			     );
 		}
 	}
+
+#if defined(CONFIG_UART_INTERRUPT_DRIVEN)
+	/* Create a thread that will handle incoming data. */
+	create_rx_handler(dev);
+#endif
 
 	return 0;
 }
@@ -400,6 +451,163 @@ static void np_cleanup_uart(void)
 	}
 #endif
 }
+
+static void uart_io(const struct device *dev)
+{
+	printk("[!!!DEBUG]: Starting UART io thread.");
+	struct native_uart_status *d = (struct native_uart_status *)dev->data;
+	char c;
+	int fd_max = 0;
+	int ready;
+	fd_set readfds;
+	static struct timeval timeout; /* just zero */
+	FD_ZERO(&readfds);
+
+	while (1) {
+		if (np_uart_tty_poll_in(dev, &c) == 0) {
+			// Handle char!
+	FD_SET(in_f, &readfds);
+
+	ready = select(in_f+1, &readfds, NULL, NULL, &timeout);
+
+	if (ready == 0) {
+		return -1;
+	} else if (ready == -1) {
+		ERROR("%s: Error on select ()\n", __func__);
+	}
+			printf("RECEIVED: %c\n", c);
+			if (d->irq_callback) {
+				d->irq_callback(dev, d->irq_cb_data);
+			}
+		} else {
+			k_yield();
+			k_sleep(K_MSEC(1));
+		}
+	}
+}
+
+static void create_rx_handler(const struct device *dev)
+{
+	printk("CREATING RX THREAD!!!!!!!!!!!!\n");
+	k_thread_create(rx_thread,
+			rx_thread_stack,
+			K_THREAD_STACK_SIZEOF(rx_thread_stack),
+			(k_thread_entry_t)uart_io,
+					(void*)dev,
+					NULL, NULL, K_PRIO_COOP(14),
+			0, K_NO_WAIT);
+
+	if (IS_ENABLED(CONFIG_THREAD_NAME)) {
+		char name[THREAD_MAX_NAME_LEN];
+		snprintk(name, sizeof(name), "uart_native_posix_rx");
+		k_thread_name_set(rx_thread, name);
+	}
+}
+
+#ifdef CONFIG_UART_0_INTERRUPT_DRIVEN
+static int np_uart_fifo_fill(const struct device *dev, const uint8_t *tx_data,
+			     int len)
+{
+	/* uint8_t num_tx = 0U; */
+
+	/* while ((len - num_tx > 0) && */
+	/*        event_txdrdy_check()) { */
+
+	/* 	/\* Clear the interrupt *\/ */
+	/* 	event_txdrdy_clear(); */
+
+	/* 	/\* Send a character *\/ */
+	/* 	nrf_uart_txd_set(uart0_addr, (uint8_t)tx_data[num_tx++]); */
+	/* } */
+
+	/* return (int)num_tx; */
+	/* TODO: Implement. */
+}
+
+/** Interrupt driven FIFO read function */
+static int np_uart_fifo_read(const struct device *dev, uint8_t *rx_data,
+			     const int size)
+{
+	/* uint8_t num_rx = 0U; */
+
+	/* while ((size - num_rx > 0) && */
+	/*        nrf_uart_event_check(uart0_addr, NRF_UART_EVENT_RXDRDY)) { */
+	/* 	/\* Clear the interrupt *\/ */
+	/* 	nrf_uart_event_clear(uart0_addr, NRF_UART_EVENT_RXDRDY); */
+
+	/* 	/\* Receive a character *\/ */
+	/* 	rx_data[num_rx++] = (uint8_t)nrf_uart_rxd_get(uart0_addr); */
+	/* } */
+
+	/* return num_rx; */
+	/* TODO: Implement. */
+}
+
+static void np_uart_irq_tx_enable(const struct device *dev)
+{
+	disable_tx_irq = false;
+
+	/* Activate the transmitter. */
+	//nrf_uart_task_trigger(uart0_addr, NRF_UART_TASK_STARTTX);
+	// nrf_uart_int_enable(uart0_addr, NRF_UART_INT_MASK_TXDRDY);
+	/* REPORT TO THREAD TO SEND? */
+	/* TODO: IMPLEMENT. */
+}
+
+static void np_uart_irq_tx_disable(const struct device *dev)
+{
+	disable_tx_irq = true;
+	/* TODO: CHECK IF CORRECT. */
+}
+
+static int np_uart_irq_tx_ready_complete(const struct device *dev)
+{
+	return !disable_tx_irq;
+}
+
+static void np_uart_irq_rx_enable(const struct device *dev)
+{
+	disable_rx_irq = false;
+	/* TODO: IMPLEMENT; */
+}
+
+static void np_uart_irq_rx_disable(const struct device *dev)
+{
+	disable_rx_irq = true;
+}
+
+static int np_uart_irq_rx_ready(const struct device *dev)
+{
+	return !disable_rx_irq;
+}
+
+static int np_uart_irq_is_pending(const struct device *dev)
+{
+	/* return ((nrf_uart_int_enable_check(uart0_addr, */
+	/* 				   NRF_UART_INT_MASK_TXDRDY) && */
+	/* 	 uart_nrfx_irq_tx_ready_complete(dev)) */
+	/* 	|| */
+	/* 	(nrf_uart_int_enable_check(uart0_addr, */
+	/* 				   NRF_UART_INT_MASK_RXDRDY) && */
+	/* 	 uart_nrfx_irq_rx_ready(dev))); */
+	/* TODO: IMPLEMENT. */
+}
+
+static int np_uart_irq_update(const struct device *dev)
+{
+	return 1;
+}
+
+static void np_uart_irq_callback_set(const struct device *dev,
+				     uart_irq_callback_user_data_t cb,
+				     void *cb_data)
+{
+	(void)dev;
+	irq_callback = cb;
+	irq_cb_data = cb_data;
+}
+
+#endif /* CONFIG_UART_0_INTERRUPT_DRIVEN */
 
 NATIVE_TASK(np_add_uart_options, PRE_BOOT_1, 11);
 NATIVE_TASK(np_cleanup_uart, ON_EXIT, 99);
